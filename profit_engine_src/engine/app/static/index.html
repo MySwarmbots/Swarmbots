@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MiroFish Profit-Optimized Engine</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #08111d; color: #d8e7ff; }
+    .wrap { padding: 24px; }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; }
+    .panel { background:#0f1b2d; border:1px solid #20324a; border-radius:12px; padding:16px; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    button { padding:10px 14px; border-radius:10px; border:0; background:#59b8ff; font-weight:700; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MiroFish Profit-Optimized Engine</h1>
+  <p>Adaptive threshold, regime filter, higher-timeframe confirmation, and volatility-aware sizing.</p>
+  <button onclick="refreshData()">Refresh</button>
+  <div class="grid">
+    <div class="panel"><h2>Swarm State</h2><pre id="state"></pre></div>
+    <div class="panel"><h2>Optimizer State</h2><pre id="opt"></pre></div>
+    <div class="panel"><h2>Latest Prediction</h2><pre id="pred"></pre></div>
+    <div class="panel"><h2>Trades</h2><pre id="trades"></pre></div>
+  </div>
+</div>
+<script>
+async function j(u){ const r = await fetch(u); return await r.json(); }
+async function refreshData(){
+  const [state, preds, opt, trades] = await Promise.all([
+    j('/api/swarm/state'), j('/api/swarm/predictions'), j('/api/swarm/optimizer'), j('/api/live/trades')
+  ]);
+  document.getElementById('state').textContent = JSON.stringify(state, null, 2);
+  document.getElementById('opt').textContent = JSON.stringify(opt, null, 2);
+  document.getElementById('pred').textContent = JSON.stringify((preds.predictions||[])[0]||{}, null, 2);
+  document.getElementById('trades').textContent = JSON.stringify(trades, null, 2);
+}
+refreshData();
+setInterval(refreshData, 5000);
+</script>
+</body>
+</html>

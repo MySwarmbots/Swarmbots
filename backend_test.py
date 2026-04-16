@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-MiroFish Backend API Testing Suite - Iteration 4
-Tests NEW features: Bitget exchange integration via CCXT
-Previous iterations: Auth, Telegram, WebSocket, password reset, agent performance charts
+MiroFish Backend API Testing Suite - Iteration 5
+Tests NEW features: Profit-optimized engine with adaptive confidence thresholds, market regime filter, volatility-aware position sizing, cooldown protection, swarm consensus, and backtest capability
+Previous iterations: Auth, Telegram, WebSocket, password reset, agent performance charts, Bitget exchange integration
 """
 
 import requests
@@ -581,6 +581,139 @@ class MiroFishAPITester:
         except Exception as e:
             self.log_test("Bitget Exchange Integration", False, f"Error: {str(e)}")
 
+    def test_profit_engine_integration(self):
+        """Test Profit Engine APIs (Iteration 5)"""
+        try:
+            # Test 1: Engine Configuration
+            response = self.session.get(f"{self.base_url}/api/engine/config")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                required_fields = ['base_confidence_threshold', 'top_signal_count', 'max_position_notional_usd', 'max_daily_loss_usd', 'kill_switch', 'cooldown_bars']
+                missing_fields = [field for field in required_fields if field not in data]
+                if not missing_fields:
+                    details += f" | ✅ All config fields present: {list(data.keys())}"
+                else:
+                    details += f" | ❌ Missing fields: {missing_fields}"
+                    success = False
+                    
+            self.log_test("Engine Config", success, details)
+            
+            # Test 2: Engine Swarm State
+            response = self.session.get(f"{self.base_url}/api/engine/swarm")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                required_fields = ['symbol', 'timeframe', 'vote_counts', 'bias_split', 'consensus', 'optimizer_state']
+                missing_fields = [field for field in required_fields if field not in data]
+                if not missing_fields:
+                    details += f" | ✅ Swarm state complete. Symbol: {data.get('symbol')}, Consensus: {data.get('consensus', {}).get('action')}"
+                else:
+                    details += f" | ❌ Missing swarm fields: {missing_fields}"
+                    success = False
+                    
+            self.log_test("Engine Swarm State", success, details)
+            
+            # Test 3: Engine Predictions
+            response = self.session.get(f"{self.base_url}/api/engine/predictions")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                predictions = data.get('predictions', [])
+                details += f" | ✅ Got {len(predictions)} predictions"
+                    
+            self.log_test("Engine Predictions", success, details)
+            
+            # Test 4: Engine Positions
+            response = self.session.get(f"{self.base_url}/api/engine/positions")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                positions = data.get('positions', [])
+                details += f" | ✅ Got {len(positions)} positions"
+                    
+            self.log_test("Engine Positions", success, details)
+            
+            # Test 5: Engine PnL
+            response = self.session.get(f"{self.base_url}/api/engine/pnl")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                pnl = data.get('realized_pnl_usd', 0)
+                details += f" | ✅ Realized PnL: ${pnl}"
+                    
+            self.log_test("Engine PnL", success, details)
+            
+            # Test 6: Engine Trades
+            response = self.session.get(f"{self.base_url}/api/engine/trades")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                trades = data.get('trades', [])
+                details += f" | ✅ Got {len(trades)} trades"
+                    
+            self.log_test("Engine Trades", success, details)
+            
+            # Test 7: Engine Config Update
+            config_update = {
+                "base_confidence_threshold": 0.70,
+                "max_position_notional_usd": 600.0
+            }
+            response = self.session.patch(f"{self.base_url}/api/engine/config", json=config_update)
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                updated_threshold = data.get('base_confidence_threshold')
+                updated_position = data.get('max_position_notional_usd')
+                if updated_threshold == 0.70 and updated_position == 600.0:
+                    details += " | ✅ Config updated successfully"
+                else:
+                    details += f" | ❌ Config not updated properly. Threshold: {updated_threshold}, Position: {updated_position}"
+                    success = False
+                    
+            self.log_test("Engine Config Update", success, details)
+            
+            # Test 8: TradingView Webhook
+            webhook_payload = {
+                "secret": "change-me",
+                "ticker": "BTCUSDT",
+                "action": "buy",
+                "price": 45000.0,
+                "interval": "5m",
+                "time": datetime.now().isoformat(),
+                "position_size": 100.0
+            }
+            response = self.session.post(f"{self.base_url}/api/engine/webhook/tradingview", json=webhook_payload)
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                status = data.get('status')
+                details += f" | ✅ Webhook processed. Status: {status}"
+                if 'prediction' in data:
+                    prediction = data['prediction']
+                    details += f", Action: {prediction.get('selected_action')}, Confidence: {prediction.get('confidence')}"
+                    
+            self.log_test("TradingView Webhook", success, details)
+            
+        except Exception as e:
+            self.log_test("Profit Engine Integration", False, f"Error: {str(e)}")
+
     def run_all_tests(self):
         """Run complete test suite"""
         print("=" * 60)
@@ -629,6 +762,10 @@ class MiroFishAPITester:
             # Bitget Exchange Integration (Iteration 4)
             print("\n📈 BITGET EXCHANGE TESTS")
             self.test_bitget_exchange_integration()
+            
+            # Profit Engine Integration (Iteration 5)
+            print("\n⚡ PROFIT ENGINE TESTS")
+            self.test_profit_engine_integration()
             
             # Logout
             print("\n🚪 LOGOUT TESTS")
