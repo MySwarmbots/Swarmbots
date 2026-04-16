@@ -8,75 +8,52 @@ Build a mobile-responsive web app for MiroFish - a crypto trading swarm agent pl
 - **Key Features**: View live agents and data
 - **Integrations**: Stripe + Crypto payments, GPT AI trading insights, Telegram and in-app notifications
 
-## Core Requirements (Static)
-1. Mobile-responsive dashboard for trading swarm management
-2. User authentication (JWT-based)
-3. Live agents monitoring and control
-4. Validation engine with shadow/live modes
-5. AI-powered trading insights
-6. Payment/subscription system
-7. In-app notification system
-
-## User Personas
-1. **Crypto Trader**: Deploys and monitors trading agents
-2. **Admin**: Manages system settings and validation gates
-3. **Subscriber**: Pays for premium agent access
-
 ## Architecture
-- **Frontend**: React 19 + Tailwind CSS + Shadcn UI
+- **Frontend**: React 19 + Tailwind CSS + Shadcn UI + Recharts
 - **Backend**: FastAPI (Python) with MongoDB
-- **Authentication**: JWT with httpOnly cookies
+- **Authentication**: JWT with httpOnly cookies + brute force protection
 - **AI**: GPT-4o via Emergent LLM integration
 - **Payments**: Stripe (card + crypto)
+- **Notifications**: In-app + Telegram bot (@TraderGMONYbot)
+- **Email**: MOCKED (logged to console) - ready for SendGrid/Resend integration
 
-## What's Been Implemented (Jan 2026)
+## What's Been Implemented
 
-### Backend
+### Sprint 1 (MVP - Jan 2026)
 - [x] JWT Authentication (register, login, logout, me, refresh)
-- [x] User management with admin seeding
 - [x] Trading agents CRUD operations
 - [x] Validation engine (runs, gate control, summary)
 - [x] AI insights endpoint with GPT-4o
 - [x] Stripe payment integration (checkout, status, webhook)
 - [x] In-app notifications system
-- [x] Dashboard stats aggregation
-
-### Frontend
-- [x] Login/Register pages with Swiss-brutalist design
 - [x] Dashboard "Control Room" with live stats
-- [x] Agents page with create/toggle/delete
-- [x] Validation page with runs table and gate control
-- [x] AI Insights terminal interface
-- [x] Billing page with subscription plans
-- [x] Notifications page
-- [x] Payment success/cancel pages
-- [x] Mobile-responsive design (hamburger menu, responsive grid)
-- [x] Dark theme throughout
+- [x] Mobile-responsive design
+
+### Sprint 2 (P0+P1 Features - Jan 2026)
+- [x] **Telegram Notifications**: Bot @TraderGMONYbot integrated, link/unlink/test via Settings
+- [x] **WebSocket**: Real-time endpoint /ws/{token} + ConnectionManager for live updates
+- [x] **Agent Performance Charts**: Recharts - Cumulative PnL, Daily PnL, Win Rate, Volume, Strategy/Exchange breakdown, Pie charts
+- [x] **Password Reset Flow**: Forgot password + reset with token (token also sent via Telegram if linked)
+- [x] **Brute Force Protection**: 5 attempts = 15min lockout
+- [x] **Settings Page**: Profile, Telegram link, Notification preferences (email/telegram toggles), Security
+- [x] **Mark All Read**: Bulk notification management
+- [x] **Unread Badge**: Real-time notification count in nav
 
 ## Prioritized Backlog
 
-### P0 - Critical (Next Sprint)
-- [ ] Telegram notification integration
-- [ ] Real-time WebSocket updates for live data
-- [ ] Agent performance charts
+### P0 - Next Sprint
+- [ ] Real email provider integration (SendGrid/Resend)
+- [ ] WebSocket client-side connection for live data push (currently polling)
 
-### P1 - High Priority
-- [ ] Password reset flow
-- [ ] Email notifications
-- [ ] Trading history export
-- [ ] Agent analytics dashboard
-
-### P2 - Medium Priority
-- [ ] Multi-exchange support
+### P1
+- [ ] Trading history export (CSV/PDF)
+- [ ] Multi-exchange API key management
 - [ ] Custom trading strategies builder
+
+### P2
 - [ ] Social sharing of performance
 - [ ] Dark/light theme toggle
-
-## Next Tasks
-1. Implement Telegram bot integration for notifications
-2. Add WebSocket for real-time agent status updates
-3. Build performance charts using Recharts
-4. Add email notification system
+- [ ] Mobile PWA install prompt
 
 ## Test Credentials
 - See `/app/memory/test_credentials.md`
