@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MiroFish Backend API Testing Suite
-Tests all API endpoints for the crypto trading swarm agent platform
+MiroFish Backend API Testing Suite - Iteration 2
+Tests NEW features: Telegram integration, WebSocket, password reset, agent performance charts
 """
 
 import requests
@@ -22,6 +22,7 @@ class MiroFishAPITester:
             "email": "admin@mirofish.io",
             "password": "admin123"
         }
+        self.user_id = None
 
     def log_test(self, name, success, details=""):
         """Log test result"""
