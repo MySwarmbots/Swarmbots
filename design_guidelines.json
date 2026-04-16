@@ -1,0 +1,105 @@
+{
+  "project_name": "MiroFish",
+  "domain": "Crypto Trading Swarm Agent Platform",
+  "theme": "Dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast - Dark Mode Variant)",
+  "emotional_tone": "Objective, Rigid, Functional, Authoritative, High-Tech",
+  "typography": {
+    "headings": "Chivo",
+    "body": "IBM Plex Sans",
+    "monospace": "IBM Plex Mono",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "data_labels": "text-xs uppercase tracking-[0.2em] font-medium",
+      "data_values": "text-sm sm:text-base font-mono tabular-nums tracking-tight"
+    },
+    "rules": "Never center headings by default. Ensure tabular numerals (tabular-nums) for all financial data to prevent layout shift."
+  },
+  "color_palette": {
+    "background": {
+      "primary": "#0A0A0A",
+      "secondary": "#111111",
+      "tertiary": "#1A1A1A"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#8A8A8A",
+      "tertiary": "#555555"
+    },
+    "border": {
+      "default": "#222222",
+      "hover": "#333333"
+    },
+    "brand_accents": {
+      "primary": "#002FA7",
+      "secondary": "#FFFFFF"
+    },
+    "status": {
+      "success": "#00FF66",
+      "danger": "#FF3B30",
+      "warning": "#FFCC00",
+      "info": "#002FA7"
+    },
+    "rules": "Color is Function Only. 95% of the UI must be monochrome (shades of deep black/grey/white). Use status colors exclusively to guide action (e.g., green for profit/active agents, red for loss/errors, yellow for slippage/warnings). Never use pure #000000; #0A0A0A is the base. No gradients."
+  },
+  "layout_and_spacing": {
+    "strategy": "The 'Control Room' Grid (Mode B)",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grid_gaps": "gap-4 sm:gap-6",
+    "component_padding": "p-4 sm:p-6",
+    "rules": "High density. Use 1px solid borders (border-border) and flat backgrounds. Expose the grid structure by removing outer radiuses. Never fill 100% of the grid perfectly if not needed, use empty spaces as visual breaks. No heavy drop shadows; use sharp, thin borders."
+  },
+  "surface_strategies": {
+    "dashboard_cards": "Grid Borders style. Flat background (bg-[#111111]), 1px border (border-[#222222]), rounded-none or max rounded-sm (2px/4px).",
+    "headers": "Solid deep black (bg-[#0A0A0A]) with a hard 1px bottom border. No glassmorphism.",
+    "buttons_primary": "Solid white background, black text. Hover: bg-gray-200.",
+    "buttons_secondary": "Transparent background, 1px white border, white text. Hover: bg-white/10.",
+    "ai_terminal": "Retro-Futurism 'Terminal' look. Deep black background, 1px border border-[#333333]. Content inside must use monospace font and a subtle 10% white text for logs, highlighted by white primary results."
+  },
+  "component_rules": {
+    "tables": "Dense. Use Shadcn Table. Remove all rounded corners. Use monospace fonts (IBM Plex Mono) for all numbers, prices, and hashes. Align numbers to the right.",
+    "charts": "Use Shadcn charts (Recharts). Render simple, thin 1px lines without filled area gradients. Use the exact status colors (e.g., #00FF66 for profit).",
+    "forms_inputs": "Shadcn components, heavily customized: rounded-none, border-[#333333], focus:ring-1 focus:ring-white focus:border-white.",
+    "status_badges": "Minimalist. Instead of full colored pills, use a 6px dot (w-1.5 h-1.5 rounded-full) beside uppercase monospace text.",
+    "notifications": "Sonner toast notifications. Dark mode forced. Position: bottom-right. Strict square edges, 1px border.",
+    "payments_stripe": "Integrate seamlessly with the dark, high-contrast theme. Dedicated modal or page using pure white accents for checkout CTAs."
+  },
+  "motion_and_interactions": {
+    "transitions": "Fast, mechanical. transition-all duration-150 ease-in-out.",
+    "hover_states": "Buttons must have explicit hover states (e.g., hover:bg-white hover:text-black for outlined buttons). Table rows should have a very subtle bg-[#151515] on hover.",
+    "loading": "Use monospace ASCII loaders or simple rapid blinking cursors instead of standard circular spinners."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure all text meets at least 4.5:1 ratio against #0A0A0A/#111111.",
+    "testing_attributes": "All interactive elements, table rows, and key metrics MUST include a 'data-testid' attribute (e.g., data-testid='agent-status-toggle', data-testid='profit-metric')."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "strokeWidth={1.5}, monochromatic (white or grey) unless indicating status."
+  },
+  "media_urls": {
+    "abstract_data_bg": {
+      "url": "https://images.unsplash.com/photo-1733817261290-389b086c15ec?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhdGElMjBnZW9tZXRyeSUyMGRhcmt8ZW58MHx8fHwxNzc2MzEzMTE0fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract, computer-generated squares/rectangles in dark mode. Use as a very subtle, low-opacity (10-20%) background layer for hero sections, empty states, or behind the AI Trading Insights panel."
+    },
+    "agent_avatar_placeholder": {
+      "url": "https://images.unsplash.com/photo-1705609397754-2b98f8197811?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwxfHxzdHJpcGUlMjBsb2dvJTIwYmxhY2slMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc3NjMxMzExMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract black and white geometry. Use as a placeholder avatar/icon for individual Swarm Agents."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install required fonts: Chivo, IBM Plex Sans, IBM Plex Mono via Google Fonts.",
+    "Override default Tailwind rounded configurations to be completely sharp (rounded-none) or extremely subtle (rounded-sm) globally to match the Swiss Brutalist aesthetic.",
+    "Implement the layout using CSS Grid heavily. This is a 'Control Room', so use grid-cols-1 md:grid-cols-3 lg:grid-cols-4 or up to 12 columns for precise dashboard widgets.",
+    "For the Live Agents Dashboard: Display active agents as individual bento-box cards or a dense data table. Include metrics like win rate, live PnL, and current status.",
+    "For the AI Trading Insights (GPT): Design this section like a command-line terminal. Monospace font, dark background, raw data look.",
+    "Validation Runs, Exchange Gate Management, and Drift Checks must be presented in dense, monospace-heavy tables. Status must use the 6px colored dot convention.",
+    "Add 'data-testid' to every actionable button, tab, and row to support automated testing.",
+    "Ensure the UI is responsive, stacking the bento grids elegantly on mobile screens, and utilizing a horizontal scroll or compact list for tables on small screens.",
+    "Use strict spacing scale (p-4, p-6). Elements inside containers with borders MUST have padding to avoid edge collision."
+  ]
+}

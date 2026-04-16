@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MiroFish v12.8 Exchange Validation Pack</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #08111d; color: #d8e7ff; }
+    .wrap { padding: 24px; }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; }
+    .panel { background:#0f1b2d; border:1px solid #20324a; border-radius:12px; padding:16px; }
+    pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow:auto; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MiroFish v12.8 Exchange Validation Pack</h1>
+  <p>Shadow validation, drift checks, slippage checks, fee checks, and rollout gates.</p>
+  <div class="grid">
+    <div class="panel"><h2>Health</h2><pre id="health"></pre></div>
+    <div class="panel"><h2>Gate</h2><pre id="gate"></pre></div>
+    <div class="panel"><h2>Summary</h2><pre id="summary"></pre></div>
+    <div class="panel"><h2>Validation Runs</h2><pre id="runs"></pre></div>
+  </div>
+</div>
+<script>
+async function j(u, opts){ const r = await fetch(u, opts||{}); return await r.json(); }
+async function refreshData(){
+  const [health, gate, summary, runs] = await Promise.all([
+    j('/health'),
+    j('/api/validation/gate'),
+    j('/api/validation/summary'),
+    j('/api/validation/runs')
+  ]);
+  document.getElementById('health').textContent = JSON.stringify(health, null, 2);
+  document.getElementById('gate').textContent = JSON.stringify(gate, null, 2);
+  document.getElementById('summary').textContent = JSON.stringify(summary, null, 2);
+  document.getElementById('runs').textContent = JSON.stringify(runs, null, 2);
+}
+refreshData();
+setInterval(refreshData, 5000);
+</script>
+</body>
+</html>
