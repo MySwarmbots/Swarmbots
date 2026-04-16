@@ -1,3 +1,4 @@
+aiodns==4.0.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.5
 aiosignal==1.4.0
@@ -9,10 +10,12 @@ bcrypt==4.1.3
 black==26.3.1
 boto3==1.42.86
 botocore==1.42.86
+ccxt==4.5.49
 certifi==2026.2.25
 cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.3.2
+coincurve==21.0.0
 cryptography==46.0.7
 distro==1.9.0
 dnspython==2.8.0
@@ -76,6 +79,7 @@ proto-plus==1.27.2
 protobuf==5.29.6
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
+pycares==5.0.1
 pycodestyle==2.14.0
 pycparser==3.0
 pydantic==2.12.5
@@ -120,6 +124,7 @@ uritemplate==4.2.0
 urllib3==2.6.3
 uvicorn==0.25.0
 watchfiles==1.1.1
+websocket-client==1.9.0
 websockets==16.0
 yarl==1.23.0
 zipp==3.23.0

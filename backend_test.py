@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-MiroFish Backend API Testing Suite - Iteration 2
-Tests NEW features: Telegram integration, WebSocket, password reset, agent performance charts
+MiroFish Backend API Testing Suite - Iteration 4
+Tests NEW features: Bitget exchange integration via CCXT
+Previous iterations: Auth, Telegram, WebSocket, password reset, agent performance charts
 """
 
 import requests
@@ -453,6 +454,133 @@ class MiroFishAPITester:
         except Exception as e:
             self.log_test("Logout", False, f"Error: {str(e)}")
 
+    def test_bitget_exchange_integration(self):
+        """Test Bitget exchange integration endpoints"""
+        try:
+            # Test 1: Exchange Status
+            response = self.session.get(f"{self.base_url}/api/exchange/status")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                configured = data.get('configured', None)
+                exchange = data.get('exchange', None)
+                details += f" | Exchange: {exchange}, Configured: {configured}"
+                
+                # Should be False since API keys are not set
+                if configured == False and exchange == "bitget":
+                    details += " | ✅ Correct: API keys not configured as expected"
+                else:
+                    details += " | ⚠️ Unexpected configuration status"
+                    
+            self.log_test("Exchange Status", success, details)
+            
+            # Test 2: Single Ticker (BTC/USDT)
+            response = self.session.get(f"{self.base_url}/api/exchange/ticker/BTC/USDT")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                required_fields = ['symbol', 'last', 'bid', 'ask']
+                missing = [f for f in required_fields if f not in data]
+                if not missing:
+                    details += f" | Live price: ${data.get('last')} for {data.get('symbol')}"
+                else:
+                    details += f" | Missing fields: {missing}"
+                    success = False
+                    
+            self.log_test("BTC/USDT Ticker", success, details)
+            
+            # Test 3: Multiple Tickers
+            symbols = "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT"
+            response = self.session.get(f"{self.base_url}/api/exchange/tickers?symbols={symbols}")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                tickers = data.get('tickers', [])
+                if len(tickers) >= 3:
+                    details += f" | Got {len(tickers)} tickers"
+                    # Show sample prices
+                    for ticker in tickers[:3]:
+                        if 'symbol' in ticker and 'last' in ticker:
+                            details += f" | {ticker['symbol']}: ${ticker['last']}"
+                else:
+                    details += f" | Expected at least 3 tickers, got {len(tickers)}"
+                    success = False
+                    
+            self.log_test("Multiple Tickers", success, details)
+            
+            # Test 4: OHLCV Candlestick Data
+            response = self.session.get(f"{self.base_url}/api/exchange/ohlcv/BTC/USDT?timeframe=1h&limit=10")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                candles = data.get('candles', [])
+                if len(candles) >= 5:
+                    details += f" | Got {len(candles)} candles"
+                    latest = candles[-1] if candles else {}
+                    if 'open' in latest and 'close' in latest:
+                        details += f" | Latest: O:{latest['open']} C:{latest['close']}"
+                else:
+                    details += f" | Expected at least 5 candles, got {len(candles)}"
+                    success = False
+                    
+            self.log_test("OHLCV Data", success, details)
+            
+            # Test 5: Balance (Should Error - No API Keys)
+            response = self.session.get(f"{self.base_url}/api/exchange/balance")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                error = data.get('error', '')
+                if 'not configured' in error.lower() or 'api key' in error.lower():
+                    details += f" | ✅ Correct error: {error}"
+                else:
+                    details += f" | ⚠️ Unexpected response: {data}"
+                    
+            self.log_test("Balance (No API Keys)", success, details)
+            
+            # Test 6: Positions (Should Return Empty)
+            response = self.session.get(f"{self.base_url}/api/exchange/positions")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                positions = data.get('positions', [])
+                if len(positions) == 0:
+                    details += " | ✅ Empty positions list as expected"
+                else:
+                    details += f" | ⚠️ Got {len(positions)} positions"
+                    
+            self.log_test("Positions (No API Keys)", success, details)
+            
+            # Test 7: Open Orders (Should Return Empty)
+            response = self.session.get(f"{self.base_url}/api/exchange/open-orders")
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            
+            if success:
+                data = response.json()
+                orders = data.get('orders', [])
+                if len(orders) == 0:
+                    details += " | ✅ Empty orders list as expected"
+                else:
+                    details += f" | ⚠️ Got {len(orders)} orders"
+                    
+            self.log_test("Open Orders (No API Keys)", success, details)
+            
+        except Exception as e:
+            self.log_test("Bitget Exchange Integration", False, f"Error: {str(e)}")
+
     def run_all_tests(self):
         """Run complete test suite"""
         print("=" * 60)
@@ -497,6 +625,10 @@ class MiroFishAPITester:
             # Notifications
             print("\n🔔 NOTIFICATIONS TESTS")
             self.test_notifications()
+            
+            # Bitget Exchange Integration (Iteration 4)
+            print("\n📈 BITGET EXCHANGE TESTS")
+            self.test_bitget_exchange_integration()
             
             # Logout
             print("\n🚪 LOGOUT TESTS")
