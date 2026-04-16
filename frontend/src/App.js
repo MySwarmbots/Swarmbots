@@ -35,36 +35,71 @@ function WsProvider({ children }) {
   const { user } = useAuth();
   const wsRef = useRef(null);
   const [lastMessage, setLastMessage] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const reconnectTimeout = useRef(null);
+  const reconnectAttempts = useRef(0);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!user?.id) return;
-    // Get access token from a cookie-based auth refresh endpoint
-    const wsUrl = API.replace("https://", "wss://").replace("http://", "ws://");
-    // We need a token for WS - fetch one via a small trick using the refresh endpoint
-    axios.post(`${API}/api/auth/refresh`, {}, { withCredentials: true })
-      .then(() => {
-        // Use a simple token-less approach by getting a fresh token
-        return axios.get(`${API}/api/auth/me`, { withCredentials: true });
-      })
-      .then(() => {
-        // For now, use user id as token placeholder (WS auth via cookie doesn't work in all browsers)
-        // The backend WS expects a JWT token in the URL
-      })
-      .catch(() => {});
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
+    try {
+      // Get a short-lived WS token from the backend
+      const { data } = await axios.get(`${API}/api/ws-token`, { withCredentials: true });
+      const wsUrl = API.replace("https://", "wss://").replace("http://", "ws://");
+      const ws = new WebSocket(`${wsUrl}/ws/${data.token}`);
+
+      ws.onopen = () => {
+        setWsConnected(true);
+        reconnectAttempts.current = 0;
+        // Keep alive with pings every 30s
+        ws._pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+        }, 30000);
+      };
+
+      ws.onmessage = (event) => {
+        if (event.data === "pong") return;
+        try {
+          const msg = JSON.parse(event.data);
+          setLastMessage(msg);
+
+          // Show toast for real-time notifications
+          if (msg.type === "notification") {
+            const n = msg.data;
+            const toastFn = n.type === "error" ? toast.error : n.type === "success" ? toast.success : n.type === "warning" ? toast.warning : toast.info;
+            toastFn(n.title, { description: n.message });
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (ws._pingInterval) clearInterval(ws._pingInterval);
+        // Reconnect with exponential backoff (max 30s)
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        reconnectAttempts.current += 1;
+        reconnectTimeout.current = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => { ws.close(); };
+      wsRef.current = ws;
+    } catch {
+      // Token fetch failed, retry in 5s
+      reconnectTimeout.current = setTimeout(connect, 5000);
+    }
   }, [user]);
 
   useEffect(() => {
-    // WebSocket connection handled separately since httpOnly cookies can't be sent to WS
-    // Real-time updates will use polling as a fallback
+    connect();
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
-  }, [user]);
+  }, [connect]);
 
   return (
-    <WsContext.Provider value={{ lastMessage }}>
+    <WsContext.Provider value={{ lastMessage, wsConnected }}>
       {children}
     </WsContext.Provider>
   );
@@ -300,6 +335,7 @@ function DashboardLayout({ children }) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const { lastMessage, wsConnected } = useWs();
 
   useEffect(() => {
     const fetchUnread = async () => {
@@ -309,9 +345,16 @@ function DashboardLayout({ children }) {
       } catch {}
     };
     fetchUnread();
-    const interval = setInterval(fetchUnread, 10000);
+    const interval = setInterval(fetchUnread, 30000); // Slower polling since WS handles real-time
     return () => clearInterval(interval);
   }, []);
+
+  // Reactively update unread count from WS notifications
+  useEffect(() => {
+    if (lastMessage?.type === "notification") {
+      setUnread((prev) => prev + 1);
+    }
+  }, [lastMessage]);
 
   const handleLogout = async () => { await logout(); navigate("/login"); };
 
@@ -349,6 +392,7 @@ function DashboardLayout({ children }) {
               ))}
             </nav>
             <div className="flex items-center gap-3">
+              <span className={`hidden sm:inline-block status-dot ${wsConnected ? 'status-dot-success' : 'status-dot-danger'}`} title={wsConnected ? 'Live' : 'Reconnecting'}></span>
               <span className="hidden sm:block font-mono text-[10px] text-[#555555]">{user?.email}</span>
               <Button variant="ghost" size="sm" onClick={handleLogout} className="text-[#8A8A8A] hover:text-white hover:bg-[#1A1A1A]" data-testid="logout-btn">
                 <LogOut size={16} strokeWidth={1.5} />
@@ -378,17 +422,25 @@ function DashboardLayout({ children }) {
 // ============== DASHBOARD PAGE ==============
 function DashboardPage() {
   const [stats, setStats] = useState(null); const [loading, setLoading] = useState(true);
+  const { lastMessage } = useWs();
+
+  const fetchStats = useCallback(async () => {
+    try { const { data } = await axios.get(`${API}/api/dashboard/stats`, { withCredentials: true }); setStats(data); }
+    catch {} finally { setLoading(false); }
+  }, []);
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 8000);
+    const interval = setInterval(fetchStats, 15000); // Slower since WS handles real-time
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStats]);
 
-  const fetchStats = async () => {
-    try { const { data } = await axios.get(`${API}/api/dashboard/stats`, { withCredentials: true }); setStats(data); }
-    catch {} finally { setLoading(false); }
-  };
+  // Refresh on WS events (agent changes, gate updates)
+  useEffect(() => {
+    if (lastMessage && ["agent_created", "agent_status", "agent_deleted", "gate_update", "validation_run"].includes(lastMessage.type)) {
+      fetchStats();
+    }
+  }, [lastMessage, fetchStats]);
 
   if (loading) return <DashboardLayout><div className="font-mono text-sm text-[#8A8A8A]">LOADING DATA<span className="cursor-blink"></span></div></DashboardLayout>;
 
@@ -459,12 +511,21 @@ function AgentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", strategy: "momentum", exchange: "binance", trading_pairs: [], risk_level: "medium" });
   const [pairInput, setPairInput] = useState("");
+  const { lastMessage } = useWs();
 
-  useEffect(() => { fetchAgents(); }, []);
-  const fetchAgents = async () => {
+  const fetchAgents = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); }
     catch { toast.error("Failed to load agents"); } finally { setLoading(false); }
-  };
+  }, []);
+
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+  // Refresh on WS agent events
+  useEffect(() => {
+    if (lastMessage && ["agent_created", "agent_status", "agent_deleted"].includes(lastMessage.type)) {
+      fetchAgents();
+    }
+  }, [lastMessage, fetchAgents]);
 
   const createAgent = async () => {
     if (!newAgent.name.trim()) { toast.error("Agent name is required"); return; }
@@ -751,14 +812,28 @@ function ChartsPage() {
 // ============== VALIDATION PAGE ==============
 function ValidationPage() {
   const [runs, setRuns] = useState([]); const [gate, setGate] = useState(null); const [loading, setLoading] = useState(true);
+  const { lastMessage } = useWs();
 
-  useEffect(() => { fetchData(); const i = setInterval(fetchData, 5000); return () => clearInterval(i); }, []);
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [r, g] = await Promise.all([axios.get(`${API}/api/validation/runs`, { withCredentials: true }), axios.get(`${API}/api/validation/gate`, { withCredentials: true })]);
       setRuns(r.data.runs); setGate(g.data);
     } catch {} finally { setLoading(false); }
-  };
+  }, []);
+
+  useEffect(() => { fetchData(); const i = setInterval(fetchData, 30000); return () => clearInterval(i); }, [fetchData]);
+
+  // Real-time updates via WS
+  useEffect(() => {
+    if (lastMessage && ["validation_run", "gate_update"].includes(lastMessage.type)) {
+      if (lastMessage.type === "validation_run") {
+        setRuns((prev) => [lastMessage.data, ...prev].slice(0, 100));
+      }
+      if (lastMessage.type === "gate_update") {
+        setGate(lastMessage.data);
+      }
+    }
+  }, [lastMessage]);
   const updateGate = async (mode, blocked) => {
     try { await axios.post(`${API}/api/validation/gate`, { mode, blocked, reason: "" }, { withCredentials: true }); toast.success("Gate updated"); fetchData(); }
     catch { toast.error("Failed"); }
@@ -861,12 +936,21 @@ function InsightsPage() {
 // ============== NOTIFICATIONS PAGE ==============
 function NotificationsPage() {
   const [notifications, setNotifications] = useState([]); const [loading, setLoading] = useState(true);
+  const { lastMessage } = useWs();
 
-  useEffect(() => { fetchNotifications(); }, []);
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/notifications`, { withCredentials: true }); setNotifications(data.notifications); }
     catch {} finally { setLoading(false); }
-  };
+  }, []);
+
+  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+
+  // Real-time notifications via WS
+  useEffect(() => {
+    if (lastMessage?.type === "notification") {
+      setNotifications((prev) => [lastMessage.data, ...prev]);
+    }
+  }, [lastMessage]);
   const markRead = async (id) => { try { await axios.patch(`${API}/api/notifications/${id}/read`, {}, { withCredentials: true }); fetchNotifications(); } catch {} };
   const markAllRead = async () => { try { await axios.post(`${API}/api/notifications/mark-all-read`, {}, { withCredentials: true }); toast.success("All read"); fetchNotifications(); } catch {} };
 

@@ -14,6 +14,7 @@ import json
 import random
 import asyncio
 import httpx
+import resend
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -145,6 +146,11 @@ ws_manager = ConnectionManager()
 # ============== TELEGRAM BOT ==============
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 async def send_telegram_message(chat_id: str, text: str):
     if not TELEGRAM_TOKEN:
@@ -169,8 +175,51 @@ async def send_telegram_message(chat_id: str, text: str):
         logger.error(f"Telegram send error: {e}")
         return False
 
+async def send_email(to_email: str, subject: str, html_content: str):
+    """Send email via Resend, falls back to logging if not configured."""
+    if not RESEND_API_KEY:
+        logger.info(f"[EMAIL FALLBACK] To: {to_email} | Subject: {subject} | (Set RESEND_API_KEY to send real emails)")
+        return False
+    try:
+        params = {
+            "from": f"MiroFish <{SENDER_EMAIL}>",
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content
+        }
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Email sent to {to_email}, id: {result.get('id', 'unknown')}")
+        return True
+    except Exception as e:
+        logger.error(f"Email send error: {e}")
+        return False
+
+def build_email_html(title: str, body: str, notif_type: str = "info"):
+    """Build a simple, styled HTML email."""
+    color_map = {"success": "#00FF66", "error": "#FF3B30", "warning": "#FFCC00", "info": "#002FA7"}
+    accent = color_map.get(notif_type, "#FFFFFF")
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0A0A0A;font-family:'Helvetica Neue',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0A0A0A;padding:40px 20px;">
+<tr><td align="center">
+<table width="480" cellpadding="0" cellspacing="0" style="background:#111111;border:1px solid #222222;">
+<tr><td style="padding:24px 24px 16px;border-bottom:2px solid {accent};">
+<h1 style="margin:0;font-size:18px;font-weight:700;color:#FFFFFF;letter-spacing:2px;">MIROFISH</h1>
+</td></tr>
+<tr><td style="padding:24px;">
+<h2 style="margin:0 0 12px;font-size:16px;color:#FFFFFF;">{title}</h2>
+<p style="margin:0;font-size:14px;color:#8A8A8A;line-height:1.6;">{body}</p>
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #222222;">
+<p style="margin:0;font-size:11px;color:#555555;">MiroFish Swarm Trading System</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
 async def notify_user(user_id: str, title: str, message: str, notif_type: str = "info"):
-    """Create in-app notification + send Telegram + WebSocket push"""
+    """Create in-app notification + send Telegram + Email + WebSocket push"""
     notif_doc = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -188,15 +237,17 @@ async def notify_user(user_id: str, title: str, message: str, notif_type: str = 
         "data": {k: v for k, v in notif_doc.items() if k != "_id" and k != "user_id"}
     })
 
-    # Telegram push if user has linked
     user = await db.users.find_one({"_id": ObjectId(user_id)})
-    if user and user.get("telegram_chat_id"):
-        emoji = {"success": "✅", "error": "🚨", "warning": "⚠️", "info": "ℹ️"}.get(notif_type, "📢")
+
+    # Telegram push if linked and enabled
+    if user and user.get("telegram_chat_id") and user.get("telegram_notifications", True):
+        emoji = {"success": "\u2705", "error": "\U0001F6A8", "warning": "\u26A0\uFE0F", "info": "\u2139\uFE0F"}.get(notif_type, "\U0001F4E2")
         await send_telegram_message(user["telegram_chat_id"], f"{emoji} <b>{title}</b>\n{message}")
 
-    # Email mock
-    if user and user.get("email"):
-        logger.info(f"[EMAIL MOCK] To: {user['email']} | Subject: {title} | Body: {message}")
+    # Email if enabled
+    if user and user.get("email") and user.get("email_notifications", True):
+        html = build_email_html(title, message, notif_type)
+        await send_email(user["email"], f"[MiroFish] {title}", html)
 
 # ============== MODELS ==============
 
@@ -427,7 +478,16 @@ async def forgot_password(data: ForgotPasswordRequest):
 
     reset_link = f"/reset-password?token={token}"
     logger.info(f"[PASSWORD RESET] Email: {email} | Reset link: {reset_link}")
-    logger.info(f"[EMAIL MOCK] To: {email} | Subject: Password Reset | Body: Click here to reset: {reset_link}")
+
+    # Send email with reset link
+    reset_html = build_email_html(
+        "Password Reset Request",
+        f"Use this token to reset your password:<br><br>"
+        f"<code style='background:#0A0A0A;padding:8px 12px;color:#00FF66;font-size:13px;display:inline-block;word-break:break-all;'>{token}</code><br><br>"
+        f"This token expires in 1 hour. If you did not request this reset, ignore this email.",
+        "warning"
+    )
+    await send_email(email, "[MiroFish] Password Reset", reset_html)
 
     # Also send via Telegram if connected
     if user.get("telegram_chat_id"):
@@ -827,6 +887,20 @@ async def health():
     return {"status": "ok", "validation": await get_validation_summary()}
 
 # ============== WEBSOCKET ENDPOINT ==============
+
+# ============== WEBSOCKET TOKEN + ENDPOINT ==============
+
+@api_router.get("/ws-token")
+async def get_ws_token(request: Request):
+    """Generate a short-lived token for WebSocket authentication."""
+    user = await get_current_user(request)
+    payload = {
+        "sub": user["_id"],
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "type": "ws"
+    }
+    token = pyjwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+    return {"token": token}
 
 @app.websocket("/ws/{token}")
 async def websocket_endpoint(websocket: WebSocket, token: str):
