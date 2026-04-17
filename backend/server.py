@@ -684,9 +684,9 @@ async def create_agent(data: AgentCreate, request: Request):
         "name": data.name, "strategy": data.strategy,
         "exchange": data.exchange, "trading_pairs": data.trading_pairs,
         "risk_level": data.risk_level, "status": "active",
-        "pnl": round(random.uniform(-500, 2000), 2),
-        "win_rate": round(random.uniform(0.45, 0.75), 2),
-        "total_trades": random.randint(10, 500),
+        "pnl": round(secrets.randbelow(2501) - 500 + random.random(), 2),
+        "win_rate": round(0.45 + (secrets.randbelow(31) / 100), 2),
+        "total_trades": secrets.randbelow(491) + 10,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.agents.insert_one(agent_doc)
@@ -1141,27 +1141,46 @@ async def auto_execute_prediction(prediction: dict):
     """Core auto-execution: takes a swarm prediction and places a real Bitget order if conditions are met."""
     config = await get_auto_exec_config()
 
-    if not config.get("enabled"):
-        return {"executed": False, "reason": "auto_exec_disabled"}
-    if not bgx.is_configured():
-        return {"executed": False, "reason": "bitget_not_configured"}
+    # Validate preconditions
+    block_reason = _check_exec_preconditions(config, prediction)
+    if block_reason:
+        return {"executed": False, "reason": block_reason}
 
     direction = prediction.get("direction")
     confidence = prediction.get("confidence", 0)
-    symbol_raw = prediction.get("symbol", "BTCUSDT")
+    ccxt_symbol = _normalize_symbol(prediction.get("symbol", "BTCUSDT"))
+    side = "buy" if direction == "long_bias" else "sell"
+    max_usd = config.get("max_trade_usd", 0.50)
 
-    # Convert BTCUSDT → BTC/USDT format for ccxt
-    ccxt_symbol = symbol_raw
-    if "/" not in ccxt_symbol and "USDT" in ccxt_symbol:
-        ccxt_symbol = ccxt_symbol.replace("USDT", "/USDT")
+    # Fetch price and place order
+    return await _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, direction)
 
-    # Check conditions
+
+def _normalize_symbol(symbol_raw: str) -> str:
+    if "/" not in symbol_raw and "USDT" in symbol_raw:
+        return symbol_raw.replace("USDT", "/USDT")
+    if "/" not in symbol_raw and "USDC" in symbol_raw:
+        return symbol_raw.replace("USDC", "/USDC")
+    return symbol_raw
+
+
+def _check_exec_preconditions(config: dict, prediction: dict) -> str:
+    """Returns a block reason string, or empty string if all checks pass."""
+    if not config.get("enabled"):
+        return "auto_exec_disabled"
+    if not bgx.is_configured():
+        return "bitget_not_configured"
+
+    direction = prediction.get("direction")
+    confidence = prediction.get("confidence", 0)
+    ccxt_symbol = _normalize_symbol(prediction.get("symbol", "BTCUSDT"))
+
     if direction == "wait":
-        return {"executed": False, "reason": "prediction_is_wait"}
+        return "prediction_is_wait"
     if confidence < config.get("min_confidence", 0.60):
-        return {"executed": False, "reason": f"confidence_{confidence}_below_threshold_{config['min_confidence']}"}
+        return f"confidence_{confidence}_below_threshold_{config['min_confidence']}"
     if ccxt_symbol not in config.get("allowed_symbols", []):
-        return {"executed": False, "reason": f"symbol_{ccxt_symbol}_not_allowed"}
+        return f"symbol_{ccxt_symbol}_not_allowed"
 
     # Cooldown check
     last_ts = config.get("last_trade_ts")
@@ -1171,16 +1190,17 @@ async def auto_execute_prediction(prediction: dict):
             if last_dt.tzinfo is None:
                 last_dt = last_dt.replace(tzinfo=timezone.utc)
             elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            if elapsed < config.get("cooldown_seconds", 300):
-                return {"executed": False, "reason": f"cooldown_active_{int(config['cooldown_seconds'] - elapsed)}s_remaining"}
-        except Exception:
-            pass
+            cooldown = config.get("cooldown_seconds", 300)
+            if elapsed < cooldown:
+                return f"cooldown_active_{int(cooldown - elapsed)}s_remaining"
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Cooldown parse error: {e}")
 
-    # Determine order side
-    side = "buy" if direction == "long_bias" else "sell"
-    max_usd = config.get("max_trade_usd", 0.50)
+    return ""
 
-    # Fetch current price to calculate quantity
+
+async def _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, direction):
+    """Fetch price, place order, log trade, broadcast."""
     try:
         ticker = await bgx.fetch_ticker(ccxt_symbol, config.get("market_type", "spot"))
         price = ticker.get("last", 0)
@@ -1193,7 +1213,6 @@ async def auto_execute_prediction(prediction: dict):
     if quantity <= 0:
         return {"executed": False, "reason": "quantity_too_small"}
 
-    # Place the order — for market buys, pass quantity (ccxt/bitget will handle cost)
     try:
         order = await bgx.create_order(
             ccxt_symbol, side, "market", quantity,
@@ -1202,51 +1221,37 @@ async def auto_execute_prediction(prediction: dict):
         )
         if "error" in order:
             return {"executed": False, "reason": f"order_error_{order['error'][:80]}"}
-
-        # Update config stats
-        await update_auto_exec_config({
-            "last_trade_ts": datetime.now(timezone.utc).isoformat(),
-            "total_trades": config.get("total_trades", 0) + 1,
-        })
-
-        # Log to trade history
-        trade_record = {
-            "source": "dungeon_auto_exec",
-            "symbol": ccxt_symbol,
-            "side": side,
-            "quantity": quantity,
-            "price": price,
-            "notional_usd": max_usd,
-            "confidence": confidence,
-            "direction": direction,
-            "order_id": order.get("id"),
-            "order_status": order.get("status"),
-            "created_at": datetime.now(timezone.utc)
-        }
-        await db.auto_exec_trades.insert_one(trade_record)
-
-        # WebSocket broadcast
-        broadcast_data = {
-            "type": "auto_exec_trade",
-            "data": {
-                "symbol": ccxt_symbol, "side": side, "quantity": quantity,
-                "price": price, "confidence": confidence, "direction": direction,
-                "order_id": order.get("id"), "status": order.get("status"),
-            }
-        }
-        await ws_manager.broadcast(broadcast_data)
-
-        # Notify all connected users
-        for uid in list(ws_manager.active_connections.keys()):
-            await notify_user(uid, "Auto-Trade Executed",
-                f"SWARM {side.upper()} {ccxt_symbol} — Qty: {quantity} @ ${price:,.2f} (Conf: {confidence*100:.0f}%)",
-                "success")
-
-        return {"executed": True, "order": order, "trade": trade_record}
-
     except Exception as e:
         logger.error(f"Auto-exec order failed: {e}")
         return {"executed": False, "reason": f"execution_error_{str(e)[:80]}"}
+
+    # Success path — log and broadcast
+    await update_auto_exec_config({
+        "last_trade_ts": datetime.now(timezone.utc).isoformat(),
+        "total_trades": config.get("total_trades", 0) + 1,
+    })
+
+    trade_record = {
+        "source": "dungeon_auto_exec", "symbol": ccxt_symbol, "side": side,
+        "quantity": quantity, "price": price, "notional_usd": max_usd,
+        "confidence": confidence, "direction": direction,
+        "order_id": order.get("id"), "order_status": order.get("status"),
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.auto_exec_trades.insert_one(trade_record)
+
+    await ws_manager.broadcast({"type": "auto_exec_trade", "data": {
+        "symbol": ccxt_symbol, "side": side, "quantity": quantity,
+        "price": price, "confidence": confidence, "direction": direction,
+        "order_id": order.get("id"), "status": order.get("status"),
+    }})
+
+    for uid in list(ws_manager.active_connections.keys()):
+        await notify_user(uid, "Auto-Trade Executed",
+            f"SWARM {side.upper()} {ccxt_symbol} — Qty: {quantity} @ ${price:,.2f} (Conf: {confidence*100:.0f}%)",
+            "success")
+
+    return {"executed": True, "order": order, "trade": trade_record}
 
 # --- Dungeon API routes ---
 
@@ -1311,6 +1316,69 @@ async def get_auto_exec_trades(limit: int = 50, request: Request = None):
 
 # --- Scheduler ---
 
+DIRECTION_EMOJI = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}
+DIRECTION_TEXT = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}
+
+
+def _format_prediction_telegram(sym: str, result: dict) -> str:
+    emoji = DIRECTION_EMOJI.get(result["direction"], "\U0001F4CA")
+    direction_text = DIRECTION_TEXT.get(result["direction"], "?")
+    return (
+        f"{emoji} <b>Swarm Prediction: {sym}</b>\n"
+        f"Direction: <b>{direction_text}</b>\n"
+        f"Confidence: <b>{result['confidence']*100:.1f}%</b>\n"
+        f"Votes: \U0001F7E2{result['votes']['bullish_count']}B "
+        f"\U0001F534{result['votes']['bearish_count']}S "
+        f"\U0001F7E1{result['votes']['neutral_count']}N"
+    )
+
+
+async def _get_telegram_users():
+    return await db.users.find(
+        {"telegram_chat_id": {"$ne": None}, "telegram_notifications": True}
+    ).to_list(50)
+
+
+async def _broadcast_to_telegram(users: list, message: str):
+    for u in users:
+        await send_telegram_message(u["telegram_chat_id"], message)
+
+
+async def _process_scheduled_symbol(sym: str, config: dict):
+    """Process one symbol in the scheduler — predict, log, alert, auto-exec."""
+    result = sd.aggregate_prediction(sym)
+    logger.info(f"[SCHEDULER] {sym}: {result['direction']} conf={result['confidence']:.3f}")
+
+    await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
+        "symbol": sym, "direction": result["direction"],
+        "confidence": result["confidence"],
+        "votes": result["votes"], "timestamp": result["timestamp"]
+    }})
+
+    await db.scheduler_runs.insert_one({
+        "symbol": sym, "direction": result["direction"],
+        "confidence": result["confidence"], "votes": result["votes"],
+        "timestamp": result["timestamp"], "created_at": datetime.now(timezone.utc)
+    })
+
+    users_tg = await _get_telegram_users()
+    await _broadcast_to_telegram(users_tg, _format_prediction_telegram(sym, result))
+
+    if not config.get("enabled"):
+        return
+
+    exec_result = await auto_execute_prediction(result)
+    if exec_result.get("executed"):
+        trade_msg = (
+            f"\U0001F4B0 <b>Auto-Trade Executed!</b>\n"
+            f"Symbol: {exec_result['order'].get('symbol', '?')}\n"
+            f"Side: {exec_result['order'].get('side', '?').upper()}\n"
+            f"Status: {exec_result['order'].get('status', '?')}"
+        )
+        await _broadcast_to_telegram(users_tg, trade_msg)
+    logger.info(f"[SCHEDULER] Auto-exec: {exec_result.get('executed')} - {exec_result.get('reason', 'ok')}")
+
+
 async def scheduler_loop():
     """Background task that runs swarm predictions on a schedule."""
     logger.info("Scheduler loop started")
@@ -1326,55 +1394,7 @@ async def scheduler_loop():
 
             for sym in symbols:
                 try:
-                    result = sd.aggregate_prediction(sym)
-                    logger.info(f"[SCHEDULER] {sym}: {result['direction']} conf={result['confidence']:.3f}")
-
-                    # Broadcast prediction via WS
-                    await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
-                        "symbol": sym, "direction": result["direction"],
-                        "confidence": result["confidence"],
-                        "votes": result["votes"],
-                        "timestamp": result["timestamp"]
-                    }})
-
-                    # Log to scheduler history
-                    await db.scheduler_runs.insert_one({
-                        "symbol": sym, "direction": result["direction"],
-                        "confidence": result["confidence"],
-                        "votes": result["votes"],
-                        "timestamp": result["timestamp"],
-                        "created_at": datetime.now(timezone.utc)
-                    })
-
-                    # Telegram alert for every scheduled prediction
-                    users_with_tg = await db.users.find({"telegram_chat_id": {"$ne": None}, "telegram_notifications": True}).to_list(50)
-                    emoji = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}.get(result["direction"], "\U0001F4CA")
-                    direction_text = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(result["direction"], "?")
-                    tg_msg = (
-                        f"{emoji} <b>Swarm Prediction: {sym}</b>\n"
-                        f"Direction: <b>{direction_text}</b>\n"
-                        f"Confidence: <b>{result['confidence']*100:.1f}%</b>\n"
-                        f"Votes: \U0001F7E2{result['votes']['bullish_count']}B "
-                        f"\U0001F534{result['votes']['bearish_count']}S "
-                        f"\U0001F7E1{result['votes']['neutral_count']}N"
-                    )
-                    for u in users_with_tg:
-                        await send_telegram_message(u["telegram_chat_id"], tg_msg)
-
-                    # Auto-execute if enabled
-                    if config.get("enabled"):
-                        exec_result = await auto_execute_prediction(result)
-                        if exec_result.get("executed"):
-                            trade_msg = (
-                                f"\U0001F4B0 <b>Auto-Trade Executed!</b>\n"
-                                f"Symbol: {exec_result['order'].get('symbol','?')}\n"
-                                f"Side: {exec_result['order'].get('side','?').upper()}\n"
-                                f"Status: {exec_result['order'].get('status','?')}"
-                            )
-                            for u in users_with_tg:
-                                await send_telegram_message(u["telegram_chat_id"], trade_msg)
-                        logger.info(f"[SCHEDULER] Auto-exec: {exec_result.get('executed')} - {exec_result.get('reason','ok')}")
-
+                    await _process_scheduled_symbol(sym, config)
                 except Exception as e:
                     logger.error(f"[SCHEDULER] Error for {sym}: {e}")
 
@@ -1418,13 +1438,8 @@ async def scheduler_trigger_now(symbol: str = "BTCUSDT", request: Request = None
         "confidence": result["confidence"], "votes": result["votes"],
     }})
 
-    # Telegram alert
-    users_tg = await db.users.find({"telegram_chat_id": {"$ne": None}, "telegram_notifications": True}).to_list(50)
-    emoji = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}.get(result["direction"], "\U0001F4CA")
-    direction_text = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(result["direction"], "?")
-    for u in users_tg:
-        await send_telegram_message(u["telegram_chat_id"],
-            f"{emoji} <b>Manual Prediction: {symbol}</b>\nDirection: <b>{direction_text}</b> ({result['confidence']*100:.1f}%)\nVotes: \U0001F7E2{result['votes']['bullish_count']}B \U0001F534{result['votes']['bearish_count']}S \U0001F7E1{result['votes']['neutral_count']}N")
+    users_tg = await _get_telegram_users()
+    await _broadcast_to_telegram(users_tg, _format_prediction_telegram(symbol, result))
 
     exec_result = None
     if config.get("enabled"):

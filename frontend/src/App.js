@@ -71,7 +71,7 @@ function WsProvider({ children }) {
             const toastFn = n.type === "error" ? toast.error : n.type === "success" ? toast.success : n.type === "warning" ? toast.warning : toast.info;
             toastFn(n.title, { description: n.message });
           }
-        } catch {}
+        } catch (e) { console.error('Request failed:', e); }
       };
 
       ws.onclose = () => {
@@ -85,7 +85,8 @@ function WsProvider({ children }) {
 
       ws.onerror = () => { ws.close(); };
       wsRef.current = ws;
-    } catch {
+    } catch (e) {
+      console.error('Request error:', e);
       // Token fetch failed, retry in 5s
       reconnectTimeout.current = setTimeout(connect, 5000);
     }
@@ -343,7 +344,7 @@ function DashboardLayout({ children }) {
       try {
         const { data } = await axios.get(`${API}/api/notifications/unread-count`, { withCredentials: true });
         setUnread(data.count);
-      } catch {}
+      } catch (e) { console.error('Request failed:', e); }
     };
     fetchUnread();
     const interval = setInterval(fetchUnread, 30000); // Slower polling since WS handles real-time
@@ -435,7 +436,7 @@ function DashboardPage() {
         axios.get(`${API}/api/dashboard/dungeon-overview`, { withCredentials: true }),
       ]);
       setStats(s.data); setDungeon(d.data);
-    } catch {} finally { setLoading(false); }
+    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -610,7 +611,7 @@ function AgentsPage() {
 
   const fetchAgents = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); }
-    catch { toast.error("Failed to load agents"); } finally { setLoading(false); }
+    catch (e) { console.error(e); toast.error("Failed to load agents"); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
@@ -632,8 +633,8 @@ function AgentsPage() {
     } catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail)); }
   };
 
-  const toggleAgent = async (id) => { try { await axios.patch(`${API}/api/agents/${id}/toggle`, {}, { withCredentials: true }); fetchAgents(); } catch { toast.error("Failed"); } };
-  const deleteAgent = async (id) => { try { await axios.delete(`${API}/api/agents/${id}`, { withCredentials: true }); toast.success("Deleted"); fetchAgents(); } catch { toast.error("Failed"); } };
+  const toggleAgent = async (id) => { try { await axios.patch(`${API}/api/agents/${id}/toggle`, {}, { withCredentials: true }); fetchAgents(); } catch (e) { console.error(e); toast.error("Failed"); } };
+  const deleteAgent = async (id) => { try { await axios.delete(`${API}/api/agents/${id}`, { withCredentials: true }); toast.success("Deleted"); fetchAgents(); } catch (e) { console.error(e); toast.error("Failed"); } };
 
   return (
     <DashboardLayout>
@@ -724,15 +725,15 @@ function ChartsPage() {
 
   const fetchPortfolio = async () => {
     try { const { data } = await axios.get(`${API}/api/agents/portfolio/summary`, { withCredentials: true }); setPortfolio(data); }
-    catch {} finally { setLoading(false); }
+    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
   };
   const fetchAgents = async () => {
     try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); if (!selectedAgent && data.agents.length) setSelectedAgent(data.agents[0].id); }
-    catch {}
+    catch (e) { console.error('Fetch agents error:', e); }
   };
   const fetchAgentPerf = async (id) => {
     try { const { data } = await axios.get(`${API}/api/agents/${id}/performance`, { withCredentials: true }); setAgentPerf(data); }
-    catch { setAgentPerf(null); }
+    catch (e) { console.error('Fetch perf error:', e); setAgentPerf(null); }
   };
 
   const CustomTooltip = ({ active, payload, label }) => {
@@ -913,7 +914,7 @@ function ValidationPage() {
     try {
       const [r, g] = await Promise.all([axios.get(`${API}/api/validation/runs`, { withCredentials: true }), axios.get(`${API}/api/validation/gate`, { withCredentials: true })]);
       setRuns(r.data.runs); setGate(g.data);
-    } catch {} finally { setLoading(false); }
+    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); const i = setInterval(fetchData, 30000); return () => clearInterval(i); }, [fetchData]);
@@ -931,7 +932,7 @@ function ValidationPage() {
   }, [lastMessage]);
   const updateGate = async (mode, blocked) => {
     try { await axios.post(`${API}/api/validation/gate`, { mode, blocked, reason: "" }, { withCredentials: true }); toast.success("Gate updated"); fetchData(); }
-    catch { toast.error("Failed"); }
+    catch (e) { console.error(e); toast.error("Failed"); }
   };
 
   return (
@@ -1035,7 +1036,7 @@ function NotificationsPage() {
 
   const fetchNotifications = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/notifications`, { withCredentials: true }); setNotifications(data.notifications); }
-    catch {} finally { setLoading(false); }
+    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
@@ -1046,8 +1047,8 @@ function NotificationsPage() {
       setNotifications((prev) => [lastMessage.data, ...prev]);
     }
   }, [lastMessage]);
-  const markRead = async (id) => { try { await axios.patch(`${API}/api/notifications/${id}/read`, {}, { withCredentials: true }); fetchNotifications(); } catch {} };
-  const markAllRead = async () => { try { await axios.post(`${API}/api/notifications/mark-all-read`, {}, { withCredentials: true }); toast.success("All read"); fetchNotifications(); } catch {} };
+  const markRead = async (id) => { try { await axios.patch(`${API}/api/notifications/${id}/read`, {}, { withCredentials: true }); fetchNotifications(); } catch (e) { console.error('Request failed:', e); } };
+  const markAllRead = async () => { try { await axios.post(`${API}/api/notifications/mark-all-read`, {}, { withCredentials: true }); toast.success("All read"); fetchNotifications(); } catch (e) { console.error('Request failed:', e); } };
 
   const getIcon = (t) => {
     switch (t) { case 'success': return <CheckCircle size={16} className="text-[#00FF66]" />; case 'error': return <XCircle size={16} className="text-[#FF3B30]" />; case 'warning': return <AlertTriangle size={16} className="text-[#FFCC00]" />; default: return <Bell size={16} className="text-[#8A8A8A]" />; }
@@ -1088,7 +1089,7 @@ function BillingPage() {
   const [plans, setPlans] = useState({}); const [loading, setLoading] = useState(true); const [checkoutLoading, setCheckoutLoading] = useState(null);
 
   useEffect(() => { fetchPlans(); }, []);
-  const fetchPlans = async () => { try { const { data } = await axios.get(`${API}/api/payments/plans`, { withCredentials: true }); setPlans(data.plans); } catch {} finally { setLoading(false); } };
+  const fetchPlans = async () => { try { const { data } = await axios.get(`${API}/api/payments/plans`, { withCredentials: true }); setPlans(data.plans); } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); } };
 
   const handleCheckout = async (planId) => {
     setCheckoutLoading(planId);
@@ -1129,7 +1130,7 @@ function SettingsPage() {
   useEffect(() => { fetchProfile(); }, []);
   const fetchProfile = async () => {
     try { const { data } = await axios.get(`${API}/api/profile`, { withCredentials: true }); setProfile(data); setChatId(data.telegram_chat_id || ""); }
-    catch {} finally { setLoading(false); }
+    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
   };
 
   const linkTelegram = async () => {
@@ -1142,7 +1143,7 @@ function SettingsPage() {
 
   const unlinkTelegram = async () => {
     try { await axios.post(`${API}/api/telegram/unlink`, {}, { withCredentials: true }); toast.success("Telegram unlinked"); setChatId(""); fetchProfile(); }
-    catch { toast.error("Failed"); }
+    catch (e) { console.error(e); toast.error("Failed"); }
   };
 
   const testTelegram = async () => {
@@ -1152,7 +1153,7 @@ function SettingsPage() {
 
   const updatePrefs = async (field, value) => {
     try { await axios.patch(`${API}/api/profile`, { [field]: value }, { withCredentials: true }); fetchProfile(); }
-    catch { toast.error("Failed to update"); }
+    catch (e) { console.error(e); toast.error("Failed to update"); }
   };
 
   if (loading) return <DashboardLayout><div className="font-mono text-sm text-[#8A8A8A]">LOADING<span className="cursor-blink"></span></div></DashboardLayout>;
@@ -1245,7 +1246,8 @@ function PaymentSuccessPage() {
       if (data.payment_status === "paid") setStatus("success");
       else if (data.status === "expired") setStatus("expired");
       else setTimeout(() => poll(a + 1), 2000);
-    } catch { setStatus("error"); }
+    } catch (e) {
+      console.error('Request error:', e); setStatus("error"); }
   };
   return (
     <DashboardLayout>
@@ -1296,7 +1298,7 @@ function DungeonPage() {
       setDungeonAgents(a.data.agents); setRollout(r.data);
       setAutoExec(ae.data); setEditAutoExec(ae.data);
       setAutoTrades(at.data.trades);
-    } catch {} finally { setLoading(false); }
+    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 8000); return () => clearInterval(i); }, [fetchAll]);
@@ -1316,7 +1318,8 @@ function DungeonPage() {
         toast.info(`No auto-trade: ${data.auto_exec.reason?.replace(/_/g, ' ')}`);
       }
       fetchAll();
-    } catch { toast.error("Prediction failed"); }
+    } catch (e) {
+      console.error('Request error:', e); toast.error("Prediction failed"); }
     finally { setPredLoading(false); }
   };
 
@@ -1325,7 +1328,8 @@ function DungeonPage() {
       const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, { enabled: !autoExec?.enabled }, { withCredentials: true });
       setAutoExec(data); setEditAutoExec(data);
       toast.success(data.enabled ? "Auto-execution ENABLED" : "Auto-execution DISABLED");
-    } catch { toast.error("Failed"); }
+    } catch (e) {
+      console.error('Request error:', e); toast.error("Failed"); }
   };
 
   const saveAutoExec = async () => {
@@ -1333,12 +1337,13 @@ function DungeonPage() {
       const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, editAutoExec, { withCredentials: true });
       setAutoExec(data); setEditAutoExec(data); setEditingAE(false);
       toast.success("Auto-exec config updated");
-    } catch { toast.error("Failed"); }
+    } catch (e) {
+      console.error('Request error:', e); toast.error("Failed"); }
   };
 
   const promoteRollout = async () => {
     try { const { data } = await axios.post(`${API}/api/dungeon/rollout/promote`, {}, { withCredentials: true }); if (data.promoted) toast.success("Stage promoted!"); else toast.warning(data.reason); fetchAll(); }
-    catch { toast.error("Promote failed"); }
+    catch (e) { console.error(e); toast.error("Promote failed"); }
   };
 
   // Group agents by sector for the dungeon view
@@ -1481,7 +1486,8 @@ function DungeonPage() {
               try {
                 const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, { scheduler_enabled: v }, { withCredentials: true });
                 setAutoExec(data); toast.success(v ? "Scheduler started" : "Scheduler stopped");
-              } catch { toast.error("Failed"); }
+              } catch (e) {
+      console.error('Request error:', e); toast.error("Failed"); }
             }} data-testid="scheduler-toggle" />
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1699,7 +1705,7 @@ function EnginePage() {
       setSwarm(s.data); setConfig(c.data); setEditConfig(c.data);
       setPredictions(p.data.predictions); setEnginePositions(pos.data.positions);
       setTrades(t.data.trades); setPnl(pnlRes.data.realized_pnl_usd);
-    } catch {} finally { setLoading(false); }
+    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 10000); return () => clearInterval(i); }, [fetchAll]);
@@ -1916,7 +1922,7 @@ function ExchangePage() {
   const { lastMessage } = useWs();
 
   const fetchStatus = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/status`, { withCredentials: true }); setExchangeStatus(data); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/status`, { withCredentials: true }); setExchangeStatus(data); } catch (e) { console.error('Request failed:', e); }
   }, []);
 
   const fetchTickers = useCallback(async () => {
@@ -1924,27 +1930,27 @@ function ExchangePage() {
       const symbols = marketType === "spot" ? "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT" : "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT";
       const { data } = await axios.get(`${API}/api/exchange/tickers?symbols=${symbols}&market_type=${marketType}`, { withCredentials: true });
       setTickers(data.tickers.filter(t => !t.error));
-    } catch {}
+    } catch (e) { console.error('Request failed:', e); }
   }, [marketType]);
 
   const fetchBalance = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/balance?market_type=${marketType}`, { withCredentials: true }); setBalance(data); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/balance?market_type=${marketType}`, { withCredentials: true }); setBalance(data); } catch (e) { console.error('Request failed:', e); }
   }, [marketType]);
 
   const fetchPositions = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/positions`, { withCredentials: true }); setPositions(data.positions); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/positions`, { withCredentials: true }); setPositions(data.positions); } catch (e) { console.error('Request failed:', e); }
   }, []);
 
   const fetchOpenOrders = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/open-orders?market_type=${marketType}`, { withCredentials: true }); setOpenOrders(data.orders); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/open-orders?market_type=${marketType}`, { withCredentials: true }); setOpenOrders(data.orders); } catch (e) { console.error('Request failed:', e); }
   }, [marketType]);
 
   const fetchOrderHistory = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/order-history?market_type=${marketType}&limit=20`, { withCredentials: true }); setOrderHistory(data.orders); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/order-history?market_type=${marketType}&limit=20`, { withCredentials: true }); setOrderHistory(data.orders); } catch (e) { console.error('Request failed:', e); }
   }, [marketType]);
 
   const fetchChart = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/ohlcv/${encodeURIComponent(selectedSymbol)}?timeframe=1h&limit=48&market_type=${marketType}`, { withCredentials: true }); setOhlcv(data.candles); } catch {}
+    try { const { data } = await axios.get(`${API}/api/exchange/ohlcv/${encodeURIComponent(selectedSymbol)}?timeframe=1h&limit=48&market_type=${marketType}`, { withCredentials: true }); setOhlcv(data.candles); } catch (e) { console.error('Request failed:', e); }
   }, [selectedSymbol, marketType]);
 
   useEffect(() => {
