@@ -1,27 +1,23 @@
-# MiroFish Mobile - Product Requirements Document
-
-## Original Problem Statement
-Build a mobile-responsive web app for MiroFish - a crypto trading swarm agent platform that deploys swarms of agents to perform crypto trading tasks and automatically compound profits.
+# MiroFish Mobile - PRD
 
 ## Architecture
-- **Frontend**: React 19 + Tailwind CSS + Shadcn UI + Recharts
-- **Backend**: FastAPI (Python) with MongoDB
-- **Exchange**: Bitget via CCXT (spot + futures)
-- **Swarm**: 24 autonomous agents with personalities, debate engine, prediction aggregation
-- **Engine**: Profit-optimized with adaptive thresholds, regime filters, risk management
-- **Auth**: JWT + brute force protection
-- **AI**: GPT-4o via Emergent LLM
-- **Payments**: Stripe (card + crypto)
-- **Notifications**: In-app + Telegram + Email (Resend)
-- **Real-time**: WebSocket
+React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Telegram + WebSocket
 
-## Implemented Features (All Sprints)
-- [x] JWT Auth, Dashboard, Agents CRUD, Validation Engine
-- [x] AI Insights (GPT-4o), Stripe Payments, In-app Notifications
-- [x] Telegram Bot (@TraderGMONYbot), Password Reset, Brute Force Protection
-- [x] Performance Charts (Recharts), Settings Page
-- [x] Client-side WebSocket with live push updates
-- [x] Resend Email integration (fallback mode)
-- [x] Bitget Exchange (live tickers, OHLCV, orders, positions)
-- [x] Profit Engine (adaptive confidence, regime filter, position sizing, backtest)
+## Implemented (All Sprints 1-7)
+- [x] Auth, Dashboard, Agents CRUD, Validation Engine, AI Insights, Stripe Payments
+- [x] Telegram Bot, Password Reset, Brute Force, Performance Charts, Settings
+- [x] WebSocket (live push), Resend Email (fallback mode)
+- [x] Bitget Exchange (LIVE - spot+futures, tickers, OHLCV, orders, positions, balance)
+- [x] Profit Engine (adaptive thresholds, regime filter, position sizing, backtest, TradingView webhook)
 - [x] Space Dungeon (24 agents, 6 sectors, debate engine, prediction aggregation, rollout pipeline)
+- [x] **Auto-Execution Bridge** (Dungeon predictions → Bitget live trades with safety controls)
+
+## Auto-Execution Details
+- Toggle ON/OFF (default OFF), max trade USD, min confidence threshold, cooldown timer
+- Symbol whitelist, trade logging to MongoDB, WebSocket broadcast, Telegram/in-app notifications
+- Full pipeline tested end-to-end against live Bitget (blocked only by insufficient balance)
+
+## Next
+- [ ] Deposit USDT to Bitget for live auto-trading
+- [ ] Add Resend API key for email notifications
+- [ ] Scheduled prediction runs (cron-style auto-predict every N minutes)
