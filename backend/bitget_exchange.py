@@ -154,16 +154,33 @@ async def create_order(symbol: str, side: str, order_type: str, amount: float,
         return {"error": "Bitget API keys not configured"}
     ex = get_spot_exchange() if market_type == "spot" else get_futures_exchange()
     try:
-        order = await asyncio.to_thread(
-            ex.create_order, symbol, order_type, side, amount, price, params or {}
-        )
+        extra = params or {}
+        # Bitget spot market orders: use createMarketBuyOrderWithCost for buy
+        if order_type == "market" and market_type == "spot":
+            if side == "buy":
+                # For market buy on Bitget spot, pass cost in USDT
+                ticker = await asyncio.to_thread(ex.fetch_ticker, symbol)
+                cost = round(amount * (ticker.get("last", 0) or 1), 4)
+                extra["cost"] = cost
+                order = await asyncio.to_thread(
+                    ex.create_order, symbol, "market", "buy", cost, None, extra
+                )
+            else:
+                order = await asyncio.to_thread(
+                    ex.create_order, symbol, "market", "sell", amount, None, extra
+                )
+        else:
+            order = await asyncio.to_thread(
+                ex.create_order, symbol, order_type, side, amount, price, extra
+            )
         return {
             "id": order["id"],
             "symbol": order["symbol"],
             "type": order["type"],
             "side": order["side"],
-            "amount": order["amount"],
-            "price": order.get("price"),
+            "amount": order.get("amount"),
+            "price": order.get("price") or order.get("average"),
+            "cost": order.get("cost"),
             "status": order["status"],
             "timestamp": order.get("datetime"),
         }

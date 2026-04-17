@@ -1076,6 +1076,152 @@ async def engine_backtest(snapshots: list[pe.SignalSnapshot], request: Request):
 
 import swarm_dungeon as sd
 
+# Auto-execution state (in-memory, persisted to MongoDB)
+auto_exec_defaults = {
+    "enabled": False,
+    "max_trade_usd": 0.50,
+    "min_confidence": 0.60,
+    "allowed_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+    "market_type": "spot",
+    "cooldown_seconds": 300,
+    "last_trade_ts": None,
+    "total_trades": 0,
+    "total_pnl_estimate": 0.0,
+}
+
+async def get_auto_exec_config():
+    doc = await db.auto_exec_config.find_one({"_id": "main"})
+    if not doc:
+        await db.auto_exec_config.insert_one({"_id": "main", **auto_exec_defaults})
+        return auto_exec_defaults.copy()
+    doc.pop("_id", None)
+    return doc
+
+async def update_auto_exec_config(updates: dict):
+    await db.auto_exec_config.update_one({"_id": "main"}, {"$set": updates}, upsert=True)
+    return await get_auto_exec_config()
+
+class AutoExecConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    max_trade_usd: Optional[float] = None
+    min_confidence: Optional[float] = None
+    allowed_symbols: Optional[List[str]] = None
+    market_type: Optional[str] = None
+    cooldown_seconds: Optional[int] = None
+
+async def auto_execute_prediction(prediction: dict):
+    """Core auto-execution: takes a swarm prediction and places a real Bitget order if conditions are met."""
+    config = await get_auto_exec_config()
+
+    if not config.get("enabled"):
+        return {"executed": False, "reason": "auto_exec_disabled"}
+    if not bgx.is_configured():
+        return {"executed": False, "reason": "bitget_not_configured"}
+
+    direction = prediction.get("direction")
+    confidence = prediction.get("confidence", 0)
+    symbol_raw = prediction.get("symbol", "BTCUSDT")
+
+    # Convert BTCUSDT → BTC/USDT format for ccxt
+    ccxt_symbol = symbol_raw
+    if "/" not in ccxt_symbol and "USDT" in ccxt_symbol:
+        ccxt_symbol = ccxt_symbol.replace("USDT", "/USDT")
+
+    # Check conditions
+    if direction == "wait":
+        return {"executed": False, "reason": "prediction_is_wait"}
+    if confidence < config.get("min_confidence", 0.60):
+        return {"executed": False, "reason": f"confidence_{confidence}_below_threshold_{config['min_confidence']}"}
+    if ccxt_symbol not in config.get("allowed_symbols", []):
+        return {"executed": False, "reason": f"symbol_{ccxt_symbol}_not_allowed"}
+
+    # Cooldown check
+    last_ts = config.get("last_trade_ts")
+    if last_ts:
+        try:
+            last_dt = datetime.fromisoformat(last_ts) if isinstance(last_ts, str) else last_ts
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if elapsed < config.get("cooldown_seconds", 300):
+                return {"executed": False, "reason": f"cooldown_active_{int(config['cooldown_seconds'] - elapsed)}s_remaining"}
+        except Exception:
+            pass
+
+    # Determine order side
+    side = "buy" if direction == "long_bias" else "sell"
+    max_usd = config.get("max_trade_usd", 0.50)
+
+    # Fetch current price to calculate quantity
+    try:
+        ticker = await bgx.fetch_ticker(ccxt_symbol, config.get("market_type", "spot"))
+        price = ticker.get("last", 0)
+        if not price or price <= 0:
+            return {"executed": False, "reason": "could_not_fetch_price"}
+    except Exception as e:
+        return {"executed": False, "reason": f"ticker_error_{str(e)[:50]}"}
+
+    quantity = round(max_usd / price, 8)
+    if quantity <= 0:
+        return {"executed": False, "reason": "quantity_too_small"}
+
+    # Place the order — for market buys, pass quantity (ccxt/bitget will handle cost)
+    try:
+        order = await bgx.create_order(
+            ccxt_symbol, side, "market", quantity,
+            market_type=config.get("market_type", "spot"),
+            params={"cost": max_usd} if side == "buy" else None
+        )
+        if "error" in order:
+            return {"executed": False, "reason": f"order_error_{order['error'][:80]}"}
+
+        # Update config stats
+        await update_auto_exec_config({
+            "last_trade_ts": datetime.now(timezone.utc).isoformat(),
+            "total_trades": config.get("total_trades", 0) + 1,
+        })
+
+        # Log to trade history
+        trade_record = {
+            "source": "dungeon_auto_exec",
+            "symbol": ccxt_symbol,
+            "side": side,
+            "quantity": quantity,
+            "price": price,
+            "notional_usd": max_usd,
+            "confidence": confidence,
+            "direction": direction,
+            "order_id": order.get("id"),
+            "order_status": order.get("status"),
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.auto_exec_trades.insert_one(trade_record)
+
+        # WebSocket broadcast
+        broadcast_data = {
+            "type": "auto_exec_trade",
+            "data": {
+                "symbol": ccxt_symbol, "side": side, "quantity": quantity,
+                "price": price, "confidence": confidence, "direction": direction,
+                "order_id": order.get("id"), "status": order.get("status"),
+            }
+        }
+        await ws_manager.broadcast(broadcast_data)
+
+        # Notify all connected users
+        for uid in list(ws_manager.active_connections.keys()):
+            await notify_user(uid, "Auto-Trade Executed",
+                f"SWARM {side.upper()} {ccxt_symbol} — Qty: {quantity} @ ${price:,.2f} (Conf: {confidence*100:.0f}%)",
+                "success")
+
+        return {"executed": True, "order": order, "trade": trade_record}
+
+    except Exception as e:
+        logger.error(f"Auto-exec order failed: {e}")
+        return {"executed": False, "reason": f"execution_error_{str(e)[:80]}"}
+
+# --- Dungeon API routes ---
+
 @api_router.get("/dungeon/agents")
 async def dungeon_agents():
     return {"agents": sd.generate_agents()}
@@ -1094,9 +1240,15 @@ async def dungeon_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
     return {"symbol": symbol, "timeframe": timeframe, "debate": stances}
 
 @api_router.get("/dungeon/prediction")
-async def dungeon_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m"):
+async def dungeon_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m", auto_exec: bool = True):
     result = sd.aggregate_prediction(symbol, timeframe)
     await ws_manager.broadcast({"type": "dungeon_prediction", "data": {"symbol": symbol, "direction": result["direction"], "confidence": result["confidence"]}})
+
+    # Auto-execute if enabled
+    exec_result = None
+    if auto_exec:
+        exec_result = await auto_execute_prediction(result)
+    result["auto_exec"] = exec_result
     return result
 
 @api_router.get("/dungeon/predictions")
@@ -1106,6 +1258,30 @@ async def dungeon_predictions():
 @api_router.get("/dungeon/debates")
 async def dungeon_debates():
     return {"debates": list(sd.debate_log)}
+
+# --- Auto-Exec Config API ---
+
+@api_router.get("/dungeon/auto-exec/config")
+async def get_auto_exec_cfg(request: Request):
+    await get_current_user(request)
+    return await get_auto_exec_config()
+
+@api_router.patch("/dungeon/auto-exec/config")
+async def patch_auto_exec_cfg(data: AutoExecConfigUpdate, request: Request):
+    await get_current_user(request)
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    result = await update_auto_exec_config(updates)
+    await ws_manager.broadcast({"type": "auto_exec_config", "data": result})
+    return result
+
+@api_router.get("/dungeon/auto-exec/trades")
+async def get_auto_exec_trades(limit: int = 50, request: Request = None):
+    if request:
+        await get_current_user(request)
+    trades = await db.auto_exec_trades.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"trades": trades}
+
+# --- Rollout routes ---
 
 @api_router.get("/dungeon/rollout")
 async def dungeon_rollout():

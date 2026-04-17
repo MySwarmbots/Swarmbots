@@ -1186,31 +1186,61 @@ function DungeonPage() {
   const [loading, setLoading] = useState(true);
   const [predLoading, setPredLoading] = useState(false);
   const [symbol, setSymbol] = useState("BTCUSDT");
+  const [autoExec, setAutoExec] = useState(null);
+  const [autoTrades, setAutoTrades] = useState([]);
+  const [editAutoExec, setEditAutoExec] = useState({});
+  const [editingAE, setEditingAE] = useState(false);
   const { lastMessage } = useWs();
 
   const fetchAll = useCallback(async () => {
     try {
-      const [a, r] = await Promise.all([
+      const [a, r, ae, at] = await Promise.all([
         axios.get(`${API}/api/dungeon/agents`, { withCredentials: true }),
         axios.get(`${API}/api/dungeon/rollout`, { withCredentials: true }),
+        axios.get(`${API}/api/dungeon/auto-exec/config`, { withCredentials: true }),
+        axios.get(`${API}/api/dungeon/auto-exec/trades?limit=10`, { withCredentials: true }),
       ]);
       setDungeonAgents(a.data.agents); setRollout(r.data);
+      setAutoExec(ae.data); setEditAutoExec(ae.data);
+      setAutoTrades(at.data.trades);
     } catch {} finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 8000); return () => clearInterval(i); }, [fetchAll]);
 
   useEffect(() => {
-    if (lastMessage && ["dungeon_debate", "dungeon_prediction", "dungeon_rollout"].includes(lastMessage.type)) fetchAll();
+    if (lastMessage && ["dungeon_debate", "dungeon_prediction", "dungeon_rollout", "auto_exec_trade", "auto_exec_config"].includes(lastMessage.type)) fetchAll();
   }, [lastMessage, fetchAll]);
 
   const runPrediction = async () => {
     setPredLoading(true);
     try {
-      const { data } = await axios.get(`${API}/api/dungeon/prediction?symbol=${symbol}`, { withCredentials: true });
+      const { data } = await axios.get(`${API}/api/dungeon/prediction?symbol=${symbol}&auto_exec=true`, { withCredentials: true });
       setPrediction(data); setDebate(data.debate);
+      if (data.auto_exec?.executed) {
+        toast.success(`Auto-trade executed: ${data.auto_exec.order?.side?.toUpperCase()} ${data.auto_exec.order?.symbol}`);
+      } else if (data.auto_exec && !data.auto_exec.executed) {
+        toast.info(`No auto-trade: ${data.auto_exec.reason?.replace(/_/g, ' ')}`);
+      }
+      fetchAll();
     } catch { toast.error("Prediction failed"); }
     finally { setPredLoading(false); }
+  };
+
+  const toggleAutoExec = async () => {
+    try {
+      const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, { enabled: !autoExec?.enabled }, { withCredentials: true });
+      setAutoExec(data); setEditAutoExec(data);
+      toast.success(data.enabled ? "Auto-execution ENABLED" : "Auto-execution DISABLED");
+    } catch { toast.error("Failed"); }
+  };
+
+  const saveAutoExec = async () => {
+    try {
+      const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, editAutoExec, { withCredentials: true });
+      setAutoExec(data); setEditAutoExec(data); setEditingAE(false);
+      toast.success("Auto-exec config updated");
+    } catch { toast.error("Failed"); }
   };
 
   const promoteRollout = async () => {
@@ -1291,6 +1321,82 @@ function DungeonPage() {
                 </div>
                 <p className="font-mono text-[10px] text-[#555555]">VOTES</p>
               </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Auto-Execution Control Panel */}
+        <Card className={`bg-[#111111] border rounded-none p-4 ${autoExec?.enabled ? 'border-[#00FF66]' : 'border-[#222222]'}`} data-testid="auto-exec-panel">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <Zap size={16} className={autoExec?.enabled ? "text-[#00FF66]" : "text-[#555555]"} />
+              <h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">AUTO-EXECUTION</h3>
+              <Badge className={`rounded-none font-mono text-[10px] ${autoExec?.enabled ? 'bg-[#00FF66] text-black' : 'bg-[#222222] text-[#8A8A8A]'}`}>
+                {autoExec?.enabled ? "LIVE" : "OFF"}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              {!editingAE ? (
+                <Button variant="ghost" size="sm" onClick={() => setEditingAE(true)} className="text-[#8A8A8A] hover:text-white" data-testid="edit-autoexec-btn"><Settings size={14} /></Button>
+              ) : (
+                <div className="flex gap-1">
+                  <Button size="sm" onClick={saveAutoExec} className="bg-[#00FF66] text-black rounded-none text-[10px] h-6 px-2" data-testid="save-autoexec-btn">SAVE</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setEditingAE(false); setEditAutoExec(autoExec); }} className="text-[#8A8A8A] text-[10px] h-6">CANCEL</Button>
+                </div>
+              )}
+              <Switch checked={autoExec?.enabled || false} onCheckedChange={toggleAutoExec} data-testid="auto-exec-toggle" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">MAX TRADE</p>
+              {editingAE ? <Input value={editAutoExec.max_trade_usd || ""} onChange={(e) => setEditAutoExec({...editAutoExec, max_trade_usd: parseFloat(e.target.value) || 0})} className="h-6 bg-[#0A0A0A] border-[#333333] rounded-none text-white font-mono text-xs p-1 mt-1" /> :
+                <p className="font-mono text-sm text-white tabular-nums">${autoExec?.max_trade_usd?.toFixed(2)}</p>}
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">MIN CONFIDENCE</p>
+              {editingAE ? <Input value={editAutoExec.min_confidence || ""} onChange={(e) => setEditAutoExec({...editAutoExec, min_confidence: parseFloat(e.target.value) || 0})} className="h-6 bg-[#0A0A0A] border-[#333333] rounded-none text-white font-mono text-xs p-1 mt-1" /> :
+                <p className="font-mono text-sm text-white tabular-nums">{((autoExec?.min_confidence || 0) * 100).toFixed(0)}%</p>}
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">COOLDOWN</p>
+              {editingAE ? <Input value={editAutoExec.cooldown_seconds || ""} onChange={(e) => setEditAutoExec({...editAutoExec, cooldown_seconds: parseInt(e.target.value) || 0})} className="h-6 bg-[#0A0A0A] border-[#333333] rounded-none text-white font-mono text-xs p-1 mt-1" /> :
+                <p className="font-mono text-sm text-white tabular-nums">{autoExec?.cooldown_seconds}s</p>}
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">TOTAL TRADES</p>
+              <p className="font-mono text-sm text-[#FFCC00] tabular-nums">{autoExec?.total_trades || 0}</p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">SYMBOLS</p>
+              <p className="font-mono text-[10px] text-[#8A8A8A]">{autoExec?.allowed_symbols?.join(", ")}</p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Auto-Exec Trade History */}
+        {autoTrades.length > 0 && (
+          <Card className="bg-[#111111] border-[#222222] rounded-none overflow-hidden">
+            <div className="p-3 border-b border-[#222222]"><h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">AUTO-EXEC TRADES ({autoTrades.length})</h3></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px]">
+                <thead className="bg-[#0A0A0A]"><tr>
+                  {["TIME", "SYMBOL", "SIDE", "QTY", "PRICE", "CONF", "STATUS"].map(h => (<th key={h} className="font-mono text-[10px] text-[#555555] text-left p-2">{h}</th>))}
+                </tr></thead>
+                <tbody>
+                  {autoTrades.map((t, i) => (
+                    <tr key={i} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`auto-trade-${i}`}>
+                      <td className="font-mono text-[10px] text-[#8A8A8A] p-2">{t.created_at ? new Date(t.created_at).toLocaleTimeString() : '-'}</td>
+                      <td className="font-mono text-xs text-white p-2">{t.symbol}</td>
+                      <td className={`font-mono text-xs p-2 font-medium ${t.side === 'buy' ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{t.side?.toUpperCase()}</td>
+                      <td className="font-mono text-xs text-white p-2 tabular-nums">{t.quantity}</td>
+                      <td className="font-mono text-xs text-white p-2 tabular-nums">${t.price?.toLocaleString()}</td>
+                      <td className="font-mono text-xs text-[#FFCC00] p-2 tabular-nums">{((t.confidence || 0) * 100).toFixed(0)}%</td>
+                      <td className="font-mono text-[10px] text-[#00FF66] p-2">{t.order_status?.toUpperCase() || 'FILLED'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
         )}

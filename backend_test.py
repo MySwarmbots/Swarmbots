@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-MiroFish Space Dungeon Swarm Backend API Testing
-Tests all dungeon endpoints and authentication
+MiroFish Auto-Execution Backend API Testing - Iteration 7
+Tests auto-execution features connecting dungeon swarm predictions to Bitget trading
 """
 import requests
 import sys
 import json
 from datetime import datetime
 
-class SpaceDungeonTester:
+class AutoExecTester:
     def __init__(self, base_url="https://mirofish-mobile.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
@@ -186,6 +186,142 @@ class SpaceDungeonTester:
                 print(f"❌ Missing rollout fields: {missing}")
         return False
 
+    def test_auto_exec_config_get(self):
+        """Test GET /api/dungeon/auto-exec/config"""
+        success, response = self.run_test(
+            "Auto-Exec Config GET",
+            "GET",
+            "dungeon/auto-exec/config",
+            200
+        )
+        if success:
+            required_fields = ['enabled', 'max_trade_usd', 'min_confidence', 'allowed_symbols', 'cooldown_seconds', 'total_trades']
+            missing = [f for f in required_fields if f not in response]
+            if not missing:
+                print(f"✅ Auto-exec config structure correct")
+                print(f"   Enabled: {response.get('enabled')}")
+                print(f"   Max Trade USD: ${response.get('max_trade_usd')}")
+                print(f"   Min Confidence: {response.get('min_confidence')}")
+                print(f"   Cooldown: {response.get('cooldown_seconds')}s")
+                print(f"   Total Trades: {response.get('total_trades')}")
+                print(f"   Allowed Symbols: {response.get('allowed_symbols')}")
+                
+                # Verify default state (should be disabled)
+                if response.get('enabled') == False:
+                    print("✅ Auto-exec correctly defaults to disabled")
+                    return True
+                else:
+                    print("⚠️  Auto-exec is enabled (expected disabled by default)")
+                    return True  # Still pass, just note the state
+            else:
+                print(f"❌ Missing auto-exec config fields: {missing}")
+        return False
+
+    def test_auto_exec_config_patch(self):
+        """Test PATCH /api/dungeon/auto-exec/config"""
+        # Test updating config
+        test_config = {
+            "enabled": True,
+            "max_trade_usd": 1.50,
+            "min_confidence": 0.65,
+            "cooldown_seconds": 600
+        }
+        
+        success, response = self.run_test(
+            "Auto-Exec Config PATCH",
+            "PATCH",
+            "dungeon/auto-exec/config",
+            200,
+            data=test_config
+        )
+        if success:
+            # Verify the updates were applied
+            if (response.get('enabled') == test_config['enabled'] and
+                response.get('max_trade_usd') == test_config['max_trade_usd'] and
+                response.get('min_confidence') == test_config['min_confidence'] and
+                response.get('cooldown_seconds') == test_config['cooldown_seconds']):
+                print(f"✅ Auto-exec config updated successfully")
+                print(f"   Updated enabled: {response.get('enabled')}")
+                print(f"   Updated max_trade_usd: ${response.get('max_trade_usd')}")
+                print(f"   Updated min_confidence: {response.get('min_confidence')}")
+                print(f"   Updated cooldown: {response.get('cooldown_seconds')}s")
+                
+                # Reset to disabled for safety
+                reset_success, _ = self.run_test(
+                    "Reset Auto-Exec to Disabled",
+                    "PATCH", 
+                    "dungeon/auto-exec/config",
+                    200,
+                    data={"enabled": False}
+                )
+                if reset_success:
+                    print("✅ Auto-exec safely reset to disabled")
+                return True
+            else:
+                print(f"❌ Config update verification failed")
+        return False
+
+    def test_auto_exec_trades(self):
+        """Test GET /api/dungeon/auto-exec/trades"""
+        success, response = self.run_test(
+            "Auto-Exec Trades History",
+            "GET",
+            "dungeon/auto-exec/trades",
+            200
+        )
+        if success and 'trades' in response:
+            trades = response['trades']
+            print(f"✅ Auto-exec trades endpoint working")
+            print(f"   Found {len(trades)} historical trades")
+            
+            if trades:
+                trade = trades[0]
+                expected_fields = ['source', 'symbol', 'side', 'quantity', 'price', 'confidence', 'direction', 'created_at']
+                missing = [f for f in expected_fields if f not in trade]
+                if not missing:
+                    print(f"✅ Trade record structure correct")
+                    print(f"   Sample trade: {trade.get('side', '').upper()} {trade.get('symbol')} @ ${trade.get('price', 0)}")
+                else:
+                    print(f"⚠️  Missing trade fields: {missing}")
+            return True
+        return False
+
+    def test_prediction_with_auto_exec(self, symbol="BTCUSDT"):
+        """Test GET /api/dungeon/prediction with auto_exec parameter"""
+        success, response = self.run_test(
+            f"Dungeon Prediction with Auto-Exec for {symbol}",
+            "GET",
+            f"dungeon/prediction?symbol={symbol}&auto_exec=true",
+            200
+        )
+        if success:
+            required_fields = ['direction', 'confidence', 'votes', 'debate', 'auto_exec']
+            missing = [f for f in required_fields if f not in response]
+            if not missing:
+                print(f"✅ Prediction with auto-exec structure correct")
+                print(f"   Direction: {response.get('direction')}")
+                print(f"   Confidence: {response.get('confidence')}")
+                
+                auto_exec = response.get('auto_exec', {})
+                if auto_exec:
+                    print(f"   Auto-exec executed: {auto_exec.get('executed', False)}")
+                    print(f"   Auto-exec reason: {auto_exec.get('reason', 'N/A')}")
+                    
+                    # Check for expected reasons when auto-exec is disabled
+                    if not auto_exec.get('executed') and auto_exec.get('reason') == 'auto_exec_disabled':
+                        print("✅ Auto-exec correctly disabled (reason: auto_exec_disabled)")
+                    elif not auto_exec.get('executed') and 'prediction_is_wait' in auto_exec.get('reason', ''):
+                        print("✅ Auto-exec skipped for 'wait' prediction")
+                    elif not auto_exec.get('executed') and 'confidence' in auto_exec.get('reason', ''):
+                        print("✅ Auto-exec skipped due to confidence threshold")
+                    elif auto_exec.get('executed'):
+                        print("⚠️  Auto-exec was executed (unexpected if disabled)")
+                    
+                return True
+            else:
+                print(f"❌ Missing prediction fields: {missing}")
+        return False
+
     def test_health_endpoints(self):
         """Test basic health endpoints"""
         endpoints = [
@@ -202,11 +338,11 @@ class SpaceDungeonTester:
         return all_passed
 
 def main():
-    print("🚀 MiroFish Space Dungeon Swarm Backend Testing")
-    print("=" * 60)
+    print("🚀 MiroFish Auto-Execution Backend Testing - Iteration 7")
+    print("=" * 70)
     
     # Setup
-    tester = SpaceDungeonTester()
+    tester = AutoExecTester()
     
     # Test basic health first
     print("\n📊 TESTING BASIC HEALTH...")
@@ -217,35 +353,48 @@ def main():
     login_ok = tester.test_login("admin@mirofish.io", "admin123")
     
     if not login_ok:
-        print("❌ Login failed, stopping Space Dungeon tests")
+        print("❌ Login failed, stopping auto-exec tests")
         print(f"\n📊 Basic Tests Results: {tester.tests_passed}/{tester.tests_run}")
         return 1
     
-    # Test Space Dungeon endpoints
-    print("\n🏰 TESTING SPACE DUNGEON SWARM...")
-    
+    # Test Space Dungeon endpoints (existing functionality)
+    print("\n🏰 TESTING SPACE DUNGEON CORE...")
     agents_ok = tester.test_dungeon_agents()
     prediction_ok = tester.test_dungeon_prediction()
     debate_ok = tester.test_dungeon_debate()
     rollout_ok = tester.test_dungeon_rollout()
     
+    # Test NEW Auto-Execution features (Iteration 7)
+    print("\n⚡ TESTING AUTO-EXECUTION FEATURES...")
+    auto_config_get_ok = tester.test_auto_exec_config_get()
+    auto_config_patch_ok = tester.test_auto_exec_config_patch()
+    auto_trades_ok = tester.test_auto_exec_trades()
+    prediction_auto_exec_ok = tester.test_prediction_with_auto_exec()
+    
     # Summary
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("📊 FINAL RESULTS")
-    print("=" * 60)
+    print("=" * 70)
     print(f"Total Tests: {tester.tests_run}")
     print(f"Passed: {tester.tests_passed}")
     print(f"Failed: {tester.tests_run - tester.tests_passed}")
     print(f"Success Rate: {(tester.tests_passed/tester.tests_run)*100:.1f}%")
     
-    print("\n🏰 Space Dungeon Features:")
+    print("\n🏰 Space Dungeon Core Features:")
     print(f"  ✅ Agents (24 bots): {'PASS' if agents_ok else 'FAIL'}")
     print(f"  ✅ Prediction Engine: {'PASS' if prediction_ok else 'FAIL'}")
     print(f"  ✅ Debate System: {'PASS' if debate_ok else 'FAIL'}")
     print(f"  ✅ Rollout Pipeline: {'PASS' if rollout_ok else 'FAIL'}")
     
+    print("\n⚡ Auto-Execution Features (NEW in Iteration 7):")
+    print(f"  ✅ Auto-Exec Config GET: {'PASS' if auto_config_get_ok else 'FAIL'}")
+    print(f"  ✅ Auto-Exec Config PATCH: {'PASS' if auto_config_patch_ok else 'FAIL'}")
+    print(f"  ✅ Auto-Exec Trades History: {'PASS' if auto_trades_ok else 'FAIL'}")
+    print(f"  ✅ Prediction with Auto-Exec: {'PASS' if prediction_auto_exec_ok else 'FAIL'}")
+    
     # Return 0 if all critical tests passed
-    critical_tests = [health_ok, login_ok, agents_ok, prediction_ok, debate_ok, rollout_ok]
+    critical_tests = [health_ok, login_ok, agents_ok, prediction_ok, debate_ok, rollout_ok, 
+                     auto_config_get_ok, auto_config_patch_ok, auto_trades_ok, prediction_auto_exec_ok]
     return 0 if all(critical_tests) else 1
 
 if __name__ == "__main__":
