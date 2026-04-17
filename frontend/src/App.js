@@ -424,22 +424,28 @@ function DashboardLayout({ children }) {
 // ============== DASHBOARD PAGE ==============
 function DashboardPage() {
   const [stats, setStats] = useState(null); const [loading, setLoading] = useState(true);
+  const [dungeon, setDungeon] = useState(null);
   const { lastMessage } = useWs();
+  const navigate = useNavigate();
 
   const fetchStats = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/dashboard/stats`, { withCredentials: true }); setStats(data); }
-    catch {} finally { setLoading(false); }
+    try {
+      const [s, d] = await Promise.all([
+        axios.get(`${API}/api/dashboard/stats`, { withCredentials: true }),
+        axios.get(`${API}/api/dashboard/dungeon-overview`, { withCredentials: true }),
+      ]);
+      setStats(s.data); setDungeon(d.data);
+    } catch {} finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 15000); // Slower since WS handles real-time
+    const interval = setInterval(fetchStats, 12000);
     return () => clearInterval(interval);
   }, [fetchStats]);
 
-  // Refresh on WS events (agent changes, gate updates)
   useEffect(() => {
-    if (lastMessage && ["agent_created", "agent_status", "agent_deleted", "gate_update", "validation_run"].includes(lastMessage.type)) {
+    if (lastMessage && ["agent_created", "agent_status", "agent_deleted", "gate_update", "validation_run", "scheduler_prediction", "auto_exec_trade"].includes(lastMessage.type)) {
       fetchStats();
     }
   }, [lastMessage, fetchStats]);
@@ -447,39 +453,92 @@ function DashboardPage() {
   if (loading) return <DashboardLayout><div className="font-mono text-sm text-[#8A8A8A]">LOADING DATA<span className="cursor-blink"></span></div></DashboardLayout>;
 
   const statCards = [
-    { label: "TOTAL AGENTS", value: stats?.total_agents || 0, icon: Bot, color: "text-white" },
-    { label: "ACTIVE AGENTS", value: stats?.active_agents || 0, icon: Zap, color: "text-[#00FF66]" },
+    { label: "TRADING AGENTS", value: stats?.total_agents || 0, icon: Bot, color: "text-white" },
+    { label: "ACTIVE", value: stats?.active_agents || 0, icon: Zap, color: "text-[#00FF66]" },
     { label: "TOTAL PNL", value: formatCurrency(stats?.total_pnl || 0), icon: stats?.total_pnl >= 0 ? TrendingUp : TrendingDown, color: stats?.total_pnl >= 0 ? "text-[#00FF66]" : "text-[#FF3B30]" },
-    { label: "AVG WIN RATE", value: `${stats?.avg_win_rate || 0}%`, icon: BarChart3, color: "text-[#FFCC00]" },
-    { label: "TOTAL TRADES", value: formatNumber(stats?.total_trades || 0, 0), icon: Activity, color: "text-white" },
-    { label: "GATE STATUS", value: stats?.validation_summary?.gate?.blocked ? "BLOCKED" : "OPEN", icon: Shield, color: stats?.validation_summary?.gate?.blocked ? "text-[#FF3B30]" : "text-[#00FF66]" },
+    { label: "WIN RATE", value: `${stats?.avg_win_rate || 0}%`, icon: BarChart3, color: "text-[#FFCC00]" },
+    { label: "TRADES", value: formatNumber(stats?.total_trades || 0, 0), icon: Activity, color: "text-white" },
+    { label: "GATE", value: stats?.validation_summary?.gate?.blocked ? "BLOCKED" : "OPEN", icon: Shield, color: stats?.validation_summary?.gate?.blocked ? "text-[#FF3B30]" : "text-[#00FF66]" },
   ];
+
+  const statusColor = (s) => ({ patrolling: "#00FF66", debating: "#FFCC00", backtesting: "#002FA7", routing: "#FF6B00", resting: "#555555", "mining-data": "#00BFFF", analyzing: "#FF00FF" }[s] || "#8A8A8A");
+  const latestPred = dungeon?.latest_predictions?.[0];
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="font-heading text-2xl font-bold tracking-tight text-white">CONTROL ROOM</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {dungeon?.scheduler?.enabled && <Badge className="bg-[#00FF66] text-black rounded-none font-mono text-[10px]">SCHEDULER LIVE</Badge>}
             <span className={`status-dot ${stats?.validation_summary?.gate?.blocked ? 'status-dot-danger' : 'status-dot-success'}`}></span>
-            <span className="font-mono text-xs text-[#8A8A8A] uppercase">GATE: {stats?.validation_summary?.gate?.mode || "SHADOW"}</span>
+            <span className="font-mono text-[10px] text-[#8A8A8A] uppercase">GATE: {stats?.validation_summary?.gate?.mode || "SHADOW"}</span>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+
+        {/* Stat Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {statCards.map((stat, i) => (
-            <Card key={i} className="bg-[#111111] border-[#222222] p-4 rounded-none hover:border-[#333333] transition-all" data-testid={`stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>
-              <stat.icon size={16} strokeWidth={1.5} className="text-[#555555] mb-2" />
-              <p className={`font-mono text-xl font-medium tabular-nums ${stat.color}`}>{stat.value}</p>
-              <p className="font-mono text-[10px] tracking-[0.15em] text-[#555555] mt-1">{stat.label}</p>
+            <Card key={i} className="bg-[#111111] border-[#222222] p-3 rounded-none hover:border-[#333333] transition-all" data-testid={`stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>
+              <stat.icon size={14} strokeWidth={1.5} className="text-[#555555] mb-1" />
+              <p className={`font-mono text-lg font-medium tabular-nums ${stat.color}`}>{stat.value}</p>
+              <p className="font-mono text-[9px] tracking-[0.15em] text-[#555555] mt-1">{stat.label}</p>
             </Card>
           ))}
         </div>
+
+        {/* Live Dungeon Avatars */}
+        <Card className="bg-[#0A0A0A] border-[#1A1A1A] p-4 rounded-none relative overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #080812 100%)' }}>
+          <div className="absolute inset-0 opacity-15" style={{ background: 'radial-gradient(1px 1px at 10% 20%, white, transparent), radial-gradient(1px 1px at 30% 50%, white, transparent), radial-gradient(1px 1px at 55% 15%, white, transparent), radial-gradient(1px 1px at 75% 65%, white, transparent), radial-gradient(1px 1px at 90% 35%, white, transparent), radial-gradient(1px 1px at 45% 85%, white, transparent)' }}></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Layers size={14} className="text-[#8A8A8A]" />
+                <span className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">SPACE DUNGEON — {dungeon?.agents?.length || 0} AGENTS LIVE</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate("/dungeon")} className="text-[#8A8A8A] hover:text-white font-mono text-[10px]" data-testid="goto-dungeon">
+                OPEN DUNGEON <ChevronRight size={12} className="ml-1" />
+              </Button>
+            </div>
+            {/* Avatar Grid */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {(dungeon?.agents || []).map((bot) => (
+                <div key={bot.agent_id} className="relative group" title={`${bot.name} — ${bot.status} — ${bot.sector}`}>
+                  <div className="w-7 h-7 flex items-center justify-center border rounded-sm transition-all hover:scale-110"
+                    style={{ borderColor: bot.color, background: `${bot.color}12` }}>
+                    <Bot size={12} style={{ color: bot.color }} />
+                  </div>
+                  <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor(bot.status) }}></div>
+                </div>
+              ))}
+            </div>
+            {/* Latest Prediction */}
+            {latestPred && (
+              <div className="flex items-center gap-4 pt-2 border-t border-[#1A1A1A]">
+                <span className="font-mono text-[10px] text-[#555555]">LATEST:</span>
+                <span className="font-mono text-xs text-white">{latestPred.symbol}</span>
+                <span className={`font-mono text-xs font-medium ${latestPred.direction === 'long_bias' ? 'text-[#00FF66]' : latestPred.direction === 'short_bias' ? 'text-[#FF3B30]' : 'text-[#FFCC00]'}`}>
+                  {latestPred.direction === 'long_bias' ? 'LONG' : latestPred.direction === 'short_bias' ? 'SHORT' : 'WAIT'}
+                </span>
+                <span className="font-mono text-xs text-white tabular-nums">{(latestPred.confidence * 100).toFixed(1)}%</span>
+                <span className="font-mono text-[10px] text-[#555555]">{new Date(latestPred.timestamp).toLocaleTimeString()}</span>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Quick Actions + System Status */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card className="bg-[#111111] border-[#222222] p-4 rounded-none">
             <h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase mb-3">QUICK ACTIONS</h3>
             <div className="space-y-2">
-              {[{ icon: Bot, label: "Manage Agents", path: "/agents" }, { icon: BarChart3, label: "Performance Charts", path: "/charts" }, { icon: Terminal, label: "AI Insights", path: "/insights" }, { icon: Settings, label: "Settings & Telegram", path: "/settings" }].map((a) => (
-                <Button key={a.path} className="w-full justify-start bg-transparent border border-[#222222] text-white hover:bg-white hover:text-black rounded-none transition-all" onClick={() => window.location.href = a.path} data-testid={`quick-${a.path.slice(1)}`}>
+              {[
+                { icon: Layers, label: "Space Dungeon", path: "/dungeon" },
+                { icon: ArrowUpDown, label: "Bitget Exchange", path: "/exchange" },
+                { icon: Zap, label: "Profit Engine", path: "/engine" },
+                { icon: BarChart3, label: "Performance Charts", path: "/charts" },
+              ].map((a) => (
+                <Button key={a.path} className="w-full justify-start bg-transparent border border-[#222222] text-white hover:bg-white hover:text-black rounded-none transition-all" onClick={() => navigate(a.path)} data-testid={`quick-${a.path.slice(1)}`}>
                   <a.icon size={16} className="mr-2" /> {a.label}
                 </Button>
               ))}
@@ -492,10 +551,13 @@ function DashboardPage() {
                 ["GATE MODE", stats?.validation_summary?.gate?.mode?.toUpperCase(), "text-white"],
                 ["GATE STATUS", stats?.validation_summary?.gate?.blocked ? "BLOCKED" : "OPEN", stats?.validation_summary?.gate?.blocked ? "text-[#FF3B30]" : "text-[#00FF66]"],
                 ["VALIDATION", `${stats?.validation_summary?.passed}/${stats?.validation_summary?.total_runs} PASSED`, "text-white"],
+                ["SCHEDULER", dungeon?.scheduler?.enabled ? `ON (${dungeon.scheduler.interval_minutes}m)` : "OFF", dungeon?.scheduler?.enabled ? "text-[#00FF66]" : "text-[#8A8A8A]"],
+                ["AUTO-EXEC", dungeon?.scheduler?.auto_exec_enabled ? "LIVE" : "OFF", dungeon?.scheduler?.auto_exec_enabled ? "text-[#00FF66]" : "text-[#8A8A8A]"],
+                ["AUTO TRADES", `${dungeon?.scheduler?.total_auto_trades || 0}`, "text-[#FFCC00]"],
                 ["UNREAD ALERTS", `${stats?.unread_notifications || 0}`, stats?.unread_notifications > 0 ? "text-[#FFCC00]" : "text-[#8A8A8A]"],
               ].map(([label, value, color]) => (
                 <div key={label} className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-[#8A8A8A]">{label}</span>
+                  <span className="font-mono text-[10px] text-[#8A8A8A]">{label}</span>
                   <span className={`font-mono text-xs ${color}`}>{value}</span>
                 </div>
               ))}
@@ -1372,6 +1434,45 @@ function DungeonPage() {
               <p className="font-mono text-[10px] text-[#8A8A8A]">{autoExec?.allowed_symbols?.join(", ")}</p>
             </div>
           </div>
+        </Card>
+
+        {/* Scheduler Control */}
+        <Card className={`bg-[#111111] border rounded-none p-4 ${autoExec?.scheduler_enabled ? 'border-[#002FA7]' : 'border-[#222222]'}`} data-testid="scheduler-panel">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <RefreshCw size={16} className={autoExec?.scheduler_enabled ? "text-[#002FA7] animate-spin" : "text-[#555555]"} style={autoExec?.scheduler_enabled ? {animationDuration: '3s'} : {}} />
+              <h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">SCHEDULED PREDICTIONS</h3>
+              <Badge className={`rounded-none font-mono text-[10px] ${autoExec?.scheduler_enabled ? 'bg-[#002FA7] text-white' : 'bg-[#222222] text-[#8A8A8A]'}`}>
+                {autoExec?.scheduler_enabled ? "RUNNING" : "OFF"}
+              </Badge>
+            </div>
+            <Switch checked={autoExec?.scheduler_enabled || false} onCheckedChange={async (v) => {
+              try {
+                const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, { scheduler_enabled: v }, { withCredentials: true });
+                setAutoExec(data); toast.success(v ? "Scheduler started" : "Scheduler stopped");
+              } catch { toast.error("Failed"); }
+            }} data-testid="scheduler-toggle" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">INTERVAL</p>
+              {editingAE ? <Input value={editAutoExec.scheduler_interval_minutes || 15} onChange={(e) => setEditAutoExec({...editAutoExec, scheduler_interval_minutes: parseInt(e.target.value) || 15})} className="h-6 bg-[#0A0A0A] border-[#333333] rounded-none text-white font-mono text-xs p-1 mt-1" /> :
+                <p className="font-mono text-sm text-white tabular-nums">{autoExec?.scheduler_interval_minutes || 15} min</p>}
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">SYMBOLS</p>
+              <p className="font-mono text-[10px] text-[#8A8A8A]">{(autoExec?.scheduler_symbols || []).join(", ")}</p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">TELEGRAM ALERTS</p>
+              <p className="font-mono text-sm text-[#00FF66]">ACTIVE</p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">AUTO-TRADE ON SIGNAL</p>
+              <p className={`font-mono text-sm ${autoExec?.enabled ? 'text-[#00FF66]' : 'text-[#8A8A8A]'}`}>{autoExec?.enabled ? "YES" : "NO"}</p>
+            </div>
+          </div>
+          <p className="font-mono text-[9px] text-[#555555] mt-2">Every {autoExec?.scheduler_interval_minutes || 15} minutes, the swarm debates and sends predictions via Telegram. If auto-exec is ON and confidence exceeds threshold, a trade is placed on Bitget.</p>
         </Card>
 
         {/* Auto-Exec Trade History */}

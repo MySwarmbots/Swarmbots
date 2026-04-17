@@ -876,6 +876,25 @@ async def get_dashboard_stats(request: Request):
         "unread_notifications": unread
     }
 
+@api_router.get("/dashboard/dungeon-overview")
+async def dashboard_dungeon_overview():
+    """Returns live dungeon agent avatars + latest prediction + scheduler status for the dashboard."""
+    dungeon_agents = sd.generate_agents()
+    latest_preds = list(sd.prediction_log)[:3]
+    config = await get_auto_exec_config()
+    latest_scheduler = await db.scheduler_runs.find({}, {"_id": 0}).sort("created_at", -1).limit(3).to_list(3)
+    return {
+        "agents": dungeon_agents,
+        "latest_predictions": latest_preds,
+        "scheduler": {
+            "enabled": config.get("scheduler_enabled", False),
+            "auto_exec_enabled": config.get("enabled", False),
+            "interval_minutes": config.get("scheduler_interval_minutes", 15),
+            "total_auto_trades": config.get("total_trades", 0),
+        },
+        "recent_scheduler_runs": latest_scheduler,
+    }
+
 # ============== HEALTH ==============
 
 @api_router.get("/")
@@ -1087,7 +1106,13 @@ auto_exec_defaults = {
     "last_trade_ts": None,
     "total_trades": 0,
     "total_pnl_estimate": 0.0,
+    "scheduler_enabled": False,
+    "scheduler_interval_minutes": 15,
+    "scheduler_symbols": ["BTCUSDT", "ETHUSDT"],
 }
+
+# Scheduler background task ref
+_scheduler_task = None
 
 async def get_auto_exec_config():
     doc = await db.auto_exec_config.find_one({"_id": "main"})
@@ -1108,6 +1133,9 @@ class AutoExecConfigUpdate(BaseModel):
     allowed_symbols: Optional[List[str]] = None
     market_type: Optional[str] = None
     cooldown_seconds: Optional[int] = None
+    scheduler_enabled: Optional[bool] = None
+    scheduler_interval_minutes: Optional[int] = None
+    scheduler_symbols: Optional[List[str]] = None
 
 async def auto_execute_prediction(prediction: dict):
     """Core auto-execution: takes a swarm prediction and places a real Bitget order if conditions are met."""
@@ -1281,6 +1309,130 @@ async def get_auto_exec_trades(limit: int = 50, request: Request = None):
     trades = await db.auto_exec_trades.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return {"trades": trades}
 
+# --- Scheduler ---
+
+async def scheduler_loop():
+    """Background task that runs swarm predictions on a schedule."""
+    logger.info("Scheduler loop started")
+    while True:
+        try:
+            config = await get_auto_exec_config()
+            if not config.get("scheduler_enabled"):
+                await asyncio.sleep(10)
+                continue
+
+            interval = max(config.get("scheduler_interval_minutes", 15), 1) * 60
+            symbols = config.get("scheduler_symbols", ["BTCUSDT"])
+
+            for sym in symbols:
+                try:
+                    result = sd.aggregate_prediction(sym)
+                    logger.info(f"[SCHEDULER] {sym}: {result['direction']} conf={result['confidence']:.3f}")
+
+                    # Broadcast prediction via WS
+                    await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
+                        "symbol": sym, "direction": result["direction"],
+                        "confidence": result["confidence"],
+                        "votes": result["votes"],
+                        "timestamp": result["timestamp"]
+                    }})
+
+                    # Log to scheduler history
+                    await db.scheduler_runs.insert_one({
+                        "symbol": sym, "direction": result["direction"],
+                        "confidence": result["confidence"],
+                        "votes": result["votes"],
+                        "timestamp": result["timestamp"],
+                        "created_at": datetime.now(timezone.utc)
+                    })
+
+                    # Telegram alert for every scheduled prediction
+                    users_with_tg = await db.users.find({"telegram_chat_id": {"$ne": None}, "telegram_notifications": True}).to_list(50)
+                    emoji = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}.get(result["direction"], "\U0001F4CA")
+                    direction_text = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(result["direction"], "?")
+                    tg_msg = (
+                        f"{emoji} <b>Swarm Prediction: {sym}</b>\n"
+                        f"Direction: <b>{direction_text}</b>\n"
+                        f"Confidence: <b>{result['confidence']*100:.1f}%</b>\n"
+                        f"Votes: \U0001F7E2{result['votes']['bullish_count']}B "
+                        f"\U0001F534{result['votes']['bearish_count']}S "
+                        f"\U0001F7E1{result['votes']['neutral_count']}N"
+                    )
+                    for u in users_with_tg:
+                        await send_telegram_message(u["telegram_chat_id"], tg_msg)
+
+                    # Auto-execute if enabled
+                    if config.get("enabled"):
+                        exec_result = await auto_execute_prediction(result)
+                        if exec_result.get("executed"):
+                            trade_msg = (
+                                f"\U0001F4B0 <b>Auto-Trade Executed!</b>\n"
+                                f"Symbol: {exec_result['order'].get('symbol','?')}\n"
+                                f"Side: {exec_result['order'].get('side','?').upper()}\n"
+                                f"Status: {exec_result['order'].get('status','?')}"
+                            )
+                            for u in users_with_tg:
+                                await send_telegram_message(u["telegram_chat_id"], trade_msg)
+                        logger.info(f"[SCHEDULER] Auto-exec: {exec_result.get('executed')} - {exec_result.get('reason','ok')}")
+
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Error for {sym}: {e}")
+
+            await asyncio.sleep(interval)
+
+        except asyncio.CancelledError:
+            logger.info("Scheduler loop cancelled")
+            break
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Loop error: {e}")
+            await asyncio.sleep(30)
+
+@api_router.get("/dungeon/scheduler/status")
+async def scheduler_status():
+    config = await get_auto_exec_config()
+    runs = await db.scheduler_runs.find({}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
+    return {
+        "scheduler_enabled": config.get("scheduler_enabled", False),
+        "interval_minutes": config.get("scheduler_interval_minutes", 15),
+        "symbols": config.get("scheduler_symbols", []),
+        "recent_runs": runs,
+    }
+
+@api_router.post("/dungeon/scheduler/trigger")
+async def scheduler_trigger_now(symbol: str = "BTCUSDT", request: Request = None):
+    """Manually trigger a scheduled prediction now."""
+    if request:
+        await get_current_user(request)
+    config = await get_auto_exec_config()
+    result = sd.aggregate_prediction(symbol)
+
+    await db.scheduler_runs.insert_one({
+        "symbol": symbol, "direction": result["direction"],
+        "confidence": result["confidence"], "votes": result["votes"],
+        "timestamp": result["timestamp"], "manual": True,
+        "created_at": datetime.now(timezone.utc)
+    })
+
+    await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
+        "symbol": symbol, "direction": result["direction"],
+        "confidence": result["confidence"], "votes": result["votes"],
+    }})
+
+    # Telegram alert
+    users_tg = await db.users.find({"telegram_chat_id": {"$ne": None}, "telegram_notifications": True}).to_list(50)
+    emoji = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}.get(result["direction"], "\U0001F4CA")
+    direction_text = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(result["direction"], "?")
+    for u in users_tg:
+        await send_telegram_message(u["telegram_chat_id"],
+            f"{emoji} <b>Manual Prediction: {symbol}</b>\nDirection: <b>{direction_text}</b> ({result['confidence']*100:.1f}%)\nVotes: \U0001F7E2{result['votes']['bullish_count']}B \U0001F534{result['votes']['bearish_count']}S \U0001F7E1{result['votes']['neutral_count']}N")
+
+    exec_result = None
+    if config.get("enabled"):
+        exec_result = await auto_execute_prediction(result)
+
+    result["auto_exec"] = exec_result
+    return result
+
 # --- Rollout routes ---
 
 @api_router.get("/dungeon/rollout")
@@ -1395,6 +1547,15 @@ async def startup():
 
     await get_gate_state()
 
+    # Start scheduler background task
+    global _scheduler_task
+    _scheduler_task = asyncio.create_task(scheduler_loop())
+    logger.info("Scheduler background task started")
+
+    # Index for scheduler runs
+    await db.scheduler_runs.create_index("created_at")
+    await db.auto_exec_trades.create_index("created_at")
+
     os.makedirs("/app/memory", exist_ok=True)
     with open("/app/memory/test_credentials.md", "w") as f:
         f.write(f"""# MiroFish Test Credentials
@@ -1422,4 +1583,11 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    global _scheduler_task
+    if _scheduler_task:
+        _scheduler_task.cancel()
+        try:
+            await _scheduler_task
+        except asyncio.CancelledError:
+            pass
     client.close()
