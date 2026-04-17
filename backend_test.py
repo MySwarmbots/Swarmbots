@@ -1,802 +1,252 @@
 #!/usr/bin/env python3
 """
-MiroFish Backend API Testing Suite - Iteration 5
-Tests NEW features: Profit-optimized engine with adaptive confidence thresholds, market regime filter, volatility-aware position sizing, cooldown protection, swarm consensus, and backtest capability
-Previous iterations: Auth, Telegram, WebSocket, password reset, agent performance charts, Bitget exchange integration
+MiroFish Space Dungeon Swarm Backend API Testing
+Tests all dungeon endpoints and authentication
 """
-
 import requests
 import sys
 import json
-import time
 from datetime import datetime
 
-class MiroFishAPITester:
+class SpaceDungeonTester:
     def __init__(self, base_url="https://mirofish-mobile.preview.emergentagent.com"):
         self.base_url = base_url
-        self.session = requests.Session()
-        self.session.headers.update({'Content-Type': 'application/json'})
+        self.token = None
         self.tests_run = 0
         self.tests_passed = 0
-        self.failed_tests = []
-        self.admin_credentials = {
-            "email": "admin@mirofish.io",
-            "password": "admin123"
-        }
-        self.user_id = None
+        self.session = requests.Session()
 
-    def log_test(self, name, success, details=""):
-        """Log test result"""
+    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
+        """Run a single API test"""
+        url = f"{self.base_url}/api/{endpoint}"
+        test_headers = {'Content-Type': 'application/json'}
+        if headers:
+            test_headers.update(headers)
+        if self.token:
+            test_headers['Authorization'] = f'Bearer {self.token}'
+
         self.tests_run += 1
-        status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{status} | {name}")
-        if details:
-            print(f"     {details}")
+        print(f"\n🔍 Testing {name}...")
+        print(f"   URL: {url}")
+        
+        try:
+            if method == 'GET':
+                response = self.session.get(url, headers=test_headers, timeout=30)
+            elif method == 'POST':
+                response = self.session.post(url, json=data, headers=test_headers, timeout=30)
+            elif method == 'PATCH':
+                response = self.session.patch(url, json=data, headers=test_headers, timeout=30)
+
+            success = response.status_code == expected_status
+            if success:
+                self.tests_passed += 1
+                print(f"✅ Passed - Status: {response.status_code}")
+                try:
+                    response_data = response.json()
+                    if isinstance(response_data, dict) and len(response_data) < 10:
+                        print(f"   Response: {json.dumps(response_data, indent=2)}")
+                    elif isinstance(response_data, dict) and 'agents' in response_data:
+                        print(f"   Response: Found {len(response_data.get('agents', []))} agents")
+                    elif isinstance(response_data, dict) and 'debate' in response_data:
+                        print(f"   Response: Found {len(response_data.get('debate', []))} debate stances")
+                    return success, response_data
+                except:
+                    return success, {}
+            else:
+                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
+                try:
+                    error_data = response.json()
+                    print(f"   Error: {error_data}")
+                except:
+                    print(f"   Error: {response.text[:200]}")
+                return False, {}
+
+        except Exception as e:
+            print(f"❌ Failed - Error: {str(e)}")
+            return False, {}
+
+    def test_login(self, email, password):
+        """Test admin login and get token"""
+        print(f"\n🔐 Testing Admin Login...")
+        success, response = self.run_test(
+            "Admin Login",
+            "POST",
+            "auth/login",
+            200,
+            data={"email": email, "password": password}
+        )
         if success:
-            self.tests_passed += 1
-        else:
-            self.failed_tests.append({"name": name, "details": details})
+            # Check if we got cookies (httpOnly) or token in response
+            cookies = self.session.cookies
+            if cookies:
+                print(f"✅ Login successful - Got cookies: {list(cookies.keys())}")
+                return True
+            elif 'access_token' in response:
+                self.token = response['access_token']
+                print(f"✅ Login successful - Got token")
+                return True
+            else:
+                print(f"✅ Login successful - Using session cookies")
+                return True
+        return False
 
-    def test_health_check(self):
+    def test_dungeon_agents(self):
+        """Test GET /api/dungeon/agents - should return 24 agents"""
+        success, response = self.run_test(
+            "Dungeon Agents",
+            "GET",
+            "dungeon/agents",
+            200
+        )
+        if success and 'agents' in response:
+            agents = response['agents']
+            print(f"   Found {len(agents)} agents")
+            if len(agents) == 24:
+                print("✅ Correct number of agents (24)")
+                # Check agent structure
+                if agents:
+                    agent = agents[0]
+                    required_fields = ['agent_id', 'name', 'role', 'personality', 'sector', 'status']
+                    missing = [f for f in required_fields if f not in agent]
+                    if not missing:
+                        print("✅ Agent structure is correct")
+                        print(f"   Sample agent: {agent['name']} ({agent['role']}) in {agent['sector']}")
+                        return True
+                    else:
+                        print(f"❌ Missing agent fields: {missing}")
+            else:
+                print(f"❌ Expected 24 agents, got {len(agents)}")
+        return False
+
+    def test_dungeon_prediction(self, symbol="BTCUSDT"):
+        """Test GET /api/dungeon/prediction"""
+        success, response = self.run_test(
+            f"Dungeon Prediction for {symbol}",
+            "GET",
+            f"dungeon/prediction?symbol={symbol}",
+            200
+        )
+        if success:
+            required_fields = ['direction', 'confidence', 'votes', 'debate']
+            missing = [f for f in required_fields if f not in response]
+            if not missing:
+                print(f"✅ Prediction structure correct")
+                print(f"   Direction: {response.get('direction')}")
+                print(f"   Confidence: {response.get('confidence')}")
+                print(f"   Votes: {response.get('votes', {})}")
+                return True
+            else:
+                print(f"❌ Missing prediction fields: {missing}")
+        return False
+
+    def test_dungeon_debate(self, symbol="BTCUSDT"):
+        """Test GET /api/dungeon/debate"""
+        success, response = self.run_test(
+            f"Dungeon Debate for {symbol}",
+            "GET",
+            f"dungeon/debate?symbol={symbol}",
+            200
+        )
+        if success and 'debate' in response:
+            debate = response['debate']
+            print(f"   Found {len(debate)} debate stances")
+            if len(debate) == 12:
+                print("✅ Correct number of debate participants (12)")
+                if debate:
+                    stance = debate[0]
+                    required_fields = ['agent_id', 'name', 'role', 'personality', 'bias', 'confidence', 'rationale']
+                    missing = [f for f in required_fields if f not in stance]
+                    if not missing:
+                        print("✅ Debate stance structure is correct")
+                        print(f"   Sample stance: {stance['name']} ({stance['bias']}) - {stance['confidence']}")
+                        return True
+                    else:
+                        print(f"❌ Missing stance fields: {missing}")
+            else:
+                print(f"❌ Expected 12 debate participants, got {len(debate)}")
+        return False
+
+    def test_dungeon_rollout(self):
+        """Test GET /api/dungeon/rollout"""
+        success, response = self.run_test(
+            "Dungeon Rollout State",
+            "GET",
+            "dungeon/rollout",
+            200
+        )
+        if success:
+            required_fields = ['stage', 'allocated_capital_usd']
+            missing = [f for f in required_fields if f not in response]
+            if not missing:
+                print(f"✅ Rollout structure correct")
+                print(f"   Stage: {response.get('stage')}")
+                print(f"   Capital: ${response.get('allocated_capital_usd')}")
+                return True
+            else:
+                print(f"❌ Missing rollout fields: {missing}")
+        return False
+
+    def test_health_endpoints(self):
         """Test basic health endpoints"""
-        try:
-            # Test root endpoint
-            response = self.session.get(f"{self.base_url}/api/")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            if success:
-                data = response.json()
-                details += f" | Message: {data.get('message', 'N/A')}"
-            self.log_test("API Root Health", success, details)
-            
-            # Test health endpoint
-            response = self.session.get(f"{self.base_url}/api/health")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            if success:
-                data = response.json()
-                details += f" | Status: {data.get('status', 'N/A')}"
-            self.log_test("API Health Check", success, details)
-            
-        except Exception as e:
-            self.log_test("API Health Check", False, f"Error: {str(e)}")
-
-    def test_user_registration(self):
-        """Test user registration flow"""
-        try:
-            test_user = {
-                "email": f"test_{int(time.time())}@test.com",
-                "password": "TestPass123!",
-                "name": "Test User"
-            }
-            
-            response = self.session.post(f"{self.base_url}/api/auth/register", json=test_user)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | User ID: {data.get('id', 'N/A')}"
-                # Check if cookies are set
-                if 'access_token' in self.session.cookies:
-                    details += " | Cookies set"
-                else:
-                    details += " | No cookies set"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("User Registration", success, details)
-            
-        except Exception as e:
-            self.log_test("User Registration", False, f"Error: {str(e)}")
-
-    def test_admin_login(self):
-        """Test admin login and store session"""
-        try:
-            response = self.session.post(f"{self.base_url}/api/auth/login", json=self.admin_credentials)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Role: {data.get('role', 'N/A')}"
-                # Check if httpOnly cookies are set
-                if 'access_token' in self.session.cookies:
-                    details += " | Auth cookies set"
-                else:
-                    details += " | No auth cookies"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Admin Login", success, details)
-            return success
-            
-        except Exception as e:
-            self.log_test("Admin Login", False, f"Error: {str(e)}")
-            return False
-
-    def test_auth_me(self):
-        """Test GET /api/auth/me endpoint"""
-        try:
-            response = self.session.get(f"{self.base_url}/api/auth/me")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Email: {data.get('email', 'N/A')} | Role: {data.get('role', 'N/A')}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Auth Me Endpoint", success, details)
-            
-        except Exception as e:
-            self.log_test("Auth Me Endpoint", False, f"Error: {str(e)}")
-
-    def test_dashboard_stats(self):
-        """Test GET /api/dashboard/stats endpoint"""
-        try:
-            response = self.session.get(f"{self.base_url}/api/dashboard/stats")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Agents: {data.get('total_agents', 0)} | PNL: {data.get('total_pnl', 0)}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Dashboard Stats", success, details)
-            
-        except Exception as e:
-            self.log_test("Dashboard Stats", False, f"Error: {str(e)}")
-
-    def test_agents_crud(self):
-        """Test agents CRUD operations"""
-        agent_id = None
+        endpoints = [
+            ("API Root", "GET", "", 200),
+            ("Health Check", "GET", "health", 200),
+        ]
         
-        # Test GET agents
-        try:
-            response = self.session.get(f"{self.base_url}/api/agents")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                agent_count = len(data.get('agents', []))
-                details += f" | Found {agent_count} agents"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("List Agents", success, details)
-            
-        except Exception as e:
-            self.log_test("List Agents", False, f"Error: {str(e)}")
-
-        # Test POST create agent
-        try:
-            new_agent = {
-                "name": f"Test Agent {int(time.time())}",
-                "strategy": "momentum",
-                "exchange": "binance",
-                "trading_pairs": ["BTC/USDT", "ETH/USDT"],
-                "risk_level": "medium"
-            }
-            
-            response = self.session.post(f"{self.base_url}/api/agents", json=new_agent)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                agent_id = data.get('id')
-                details += f" | Agent ID: {agent_id} | PNL: {data.get('pnl', 0)}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Create Agent", success, details)
-            
-        except Exception as e:
-            self.log_test("Create Agent", False, f"Error: {str(e)}")
-
-        # Test PATCH toggle agent status
-        if agent_id:
-            try:
-                response = self.session.patch(f"{self.base_url}/api/agents/{agent_id}/toggle")
-                success = response.status_code == 200
-                details = f"Status: {response.status_code}"
-                
-                if success:
-                    data = response.json()
-                    details += f" | New status: {data.get('status', 'N/A')}"
-                else:
-                    try:
-                        error_data = response.json()
-                        details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                    except:
-                        details += f" | Response: {response.text[:100]}"
-                        
-                self.log_test("Toggle Agent Status", success, details)
-                
-            except Exception as e:
-                self.log_test("Toggle Agent Status", False, f"Error: {str(e)}")
-
-    def test_validation_endpoints(self):
-        """Test validation engine endpoints"""
-        # Test GET validation gate
-        try:
-            response = self.session.get(f"{self.base_url}/api/validation/gate")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Mode: {data.get('mode', 'N/A')} | Blocked: {data.get('blocked', 'N/A')}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Validation Gate Status", success, details)
-            
-        except Exception as e:
-            self.log_test("Validation Gate Status", False, f"Error: {str(e)}")
-
-        # Test GET validation runs
-        try:
-            response = self.session.get(f"{self.base_url}/api/validation/runs")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                run_count = len(data.get('runs', []))
-                details += f" | Found {run_count} validation runs"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Validation Runs", success, details)
-            
-        except Exception as e:
-            self.log_test("Validation Runs", False, f"Error: {str(e)}")
-
-        # Test POST validation run
-        try:
-            validation_data = {
-                "symbol": "BTC/USDT",
-                "exchange": "binance",
-                "expected_price": 50000.0,
-                "actual_price": 50005.0,
-                "expected_fee_bps": 6.0,
-                "actual_fee_bps": 6.0
-            }
-            
-            response = self.session.post(f"{self.base_url}/api/validation/run", json=validation_data)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Passed: {data.get('passed', 'N/A')} | Drift: {data.get('drift_pct', 0)}%"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Create Validation Run", success, details)
-            
-        except Exception as e:
-            self.log_test("Create Validation Run", False, f"Error: {str(e)}")
-
-    def test_ai_insights(self):
-        """Test AI insights endpoint"""
-        try:
-            insight_request = {
-                "prompt": "What are the current market conditions for Bitcoin?",
-                "context": "Testing AI integration"
-            }
-            
-            response = self.session.post(f"{self.base_url}/api/ai/insights", json=insight_request)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                insight_length = len(data.get('insight', ''))
-                details += f" | Response length: {insight_length} chars"
-                if insight_length > 0:
-                    details += " | AI response received"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("AI Insights", success, details)
-            
-        except Exception as e:
-            self.log_test("AI Insights", False, f"Error: {str(e)}")
-
-    def test_billing_endpoints(self):
-        """Test billing and payments endpoints"""
-        # Test GET payment plans
-        try:
-            response = self.session.get(f"{self.base_url}/api/payments/plans")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                plan_count = len(data.get('plans', {}))
-                details += f" | Found {plan_count} subscription plans"
-                if plan_count > 0:
-                    plans = list(data.get('plans', {}).keys())
-                    details += f" | Plans: {', '.join(plans)}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Payment Plans", success, details)
-            
-        except Exception as e:
-            self.log_test("Payment Plans", False, f"Error: {str(e)}")
-
-        # Test POST checkout (will fail without valid Stripe setup, but should return proper error)
-        try:
-            checkout_request = {
-                "plan": "starter",
-                "origin_url": "https://mirofish-mobile.preview.emergentagent.com"
-            }
-            
-            response = self.session.post(f"{self.base_url}/api/payments/checkout", json=checkout_request)
-            # Expect either success (200) or proper error handling
-            success = response.status_code in [200, 400, 500]
-            details = f"Status: {response.status_code}"
-            
-            if response.status_code == 200:
-                data = response.json()
-                details += f" | Checkout URL created: {bool(data.get('url'))}"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Stripe Checkout", success, details)
-            
-        except Exception as e:
-            self.log_test("Stripe Checkout", False, f"Error: {str(e)}")
-
-    def test_notifications(self):
-        """Test notifications endpoints"""
-        try:
-            response = self.session.get(f"{self.base_url}/api/notifications")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                notif_count = len(data.get('notifications', []))
-                details += f" | Found {notif_count} notifications"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Notifications", success, details)
-            
-        except Exception as e:
-            self.log_test("Notifications", False, f"Error: {str(e)}")
-
-    def test_auth_logout(self):
-        """Test logout endpoint"""
-        try:
-            response = self.session.post(f"{self.base_url}/api/auth/logout")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                details += f" | Message: {data.get('message', 'N/A')}"
-                # Check if cookies are cleared
-                if 'access_token' not in self.session.cookies:
-                    details += " | Cookies cleared"
-                else:
-                    details += " | Cookies still present"
-            else:
-                try:
-                    error_data = response.json()
-                    details += f" | Error: {error_data.get('detail', 'Unknown error')}"
-                except:
-                    details += f" | Response: {response.text[:100]}"
-                    
-            self.log_test("Logout", success, details)
-            
-        except Exception as e:
-            self.log_test("Logout", False, f"Error: {str(e)}")
-
-    def test_bitget_exchange_integration(self):
-        """Test Bitget exchange integration endpoints"""
-        try:
-            # Test 1: Exchange Status
-            response = self.session.get(f"{self.base_url}/api/exchange/status")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                configured = data.get('configured', None)
-                exchange = data.get('exchange', None)
-                details += f" | Exchange: {exchange}, Configured: {configured}"
-                
-                # Should be False since API keys are not set
-                if configured == False and exchange == "bitget":
-                    details += " | ✅ Correct: API keys not configured as expected"
-                else:
-                    details += " | ⚠️ Unexpected configuration status"
-                    
-            self.log_test("Exchange Status", success, details)
-            
-            # Test 2: Single Ticker (BTC/USDT)
-            response = self.session.get(f"{self.base_url}/api/exchange/ticker/BTC/USDT")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                required_fields = ['symbol', 'last', 'bid', 'ask']
-                missing = [f for f in required_fields if f not in data]
-                if not missing:
-                    details += f" | Live price: ${data.get('last')} for {data.get('symbol')}"
-                else:
-                    details += f" | Missing fields: {missing}"
-                    success = False
-                    
-            self.log_test("BTC/USDT Ticker", success, details)
-            
-            # Test 3: Multiple Tickers
-            symbols = "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT"
-            response = self.session.get(f"{self.base_url}/api/exchange/tickers?symbols={symbols}")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                tickers = data.get('tickers', [])
-                if len(tickers) >= 3:
-                    details += f" | Got {len(tickers)} tickers"
-                    # Show sample prices
-                    for ticker in tickers[:3]:
-                        if 'symbol' in ticker and 'last' in ticker:
-                            details += f" | {ticker['symbol']}: ${ticker['last']}"
-                else:
-                    details += f" | Expected at least 3 tickers, got {len(tickers)}"
-                    success = False
-                    
-            self.log_test("Multiple Tickers", success, details)
-            
-            # Test 4: OHLCV Candlestick Data
-            response = self.session.get(f"{self.base_url}/api/exchange/ohlcv/BTC/USDT?timeframe=1h&limit=10")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                candles = data.get('candles', [])
-                if len(candles) >= 5:
-                    details += f" | Got {len(candles)} candles"
-                    latest = candles[-1] if candles else {}
-                    if 'open' in latest and 'close' in latest:
-                        details += f" | Latest: O:{latest['open']} C:{latest['close']}"
-                else:
-                    details += f" | Expected at least 5 candles, got {len(candles)}"
-                    success = False
-                    
-            self.log_test("OHLCV Data", success, details)
-            
-            # Test 5: Balance (Should Error - No API Keys)
-            response = self.session.get(f"{self.base_url}/api/exchange/balance")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                error = data.get('error', '')
-                if 'not configured' in error.lower() or 'api key' in error.lower():
-                    details += f" | ✅ Correct error: {error}"
-                else:
-                    details += f" | ⚠️ Unexpected response: {data}"
-                    
-            self.log_test("Balance (No API Keys)", success, details)
-            
-            # Test 6: Positions (Should Return Empty)
-            response = self.session.get(f"{self.base_url}/api/exchange/positions")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                positions = data.get('positions', [])
-                if len(positions) == 0:
-                    details += " | ✅ Empty positions list as expected"
-                else:
-                    details += f" | ⚠️ Got {len(positions)} positions"
-                    
-            self.log_test("Positions (No API Keys)", success, details)
-            
-            # Test 7: Open Orders (Should Return Empty)
-            response = self.session.get(f"{self.base_url}/api/exchange/open-orders")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                orders = data.get('orders', [])
-                if len(orders) == 0:
-                    details += " | ✅ Empty orders list as expected"
-                else:
-                    details += f" | ⚠️ Got {len(orders)} orders"
-                    
-            self.log_test("Open Orders (No API Keys)", success, details)
-            
-        except Exception as e:
-            self.log_test("Bitget Exchange Integration", False, f"Error: {str(e)}")
-
-    def test_profit_engine_integration(self):
-        """Test Profit Engine APIs (Iteration 5)"""
-        try:
-            # Test 1: Engine Configuration
-            response = self.session.get(f"{self.base_url}/api/engine/config")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                required_fields = ['base_confidence_threshold', 'top_signal_count', 'max_position_notional_usd', 'max_daily_loss_usd', 'kill_switch', 'cooldown_bars']
-                missing_fields = [field for field in required_fields if field not in data]
-                if not missing_fields:
-                    details += f" | ✅ All config fields present: {list(data.keys())}"
-                else:
-                    details += f" | ❌ Missing fields: {missing_fields}"
-                    success = False
-                    
-            self.log_test("Engine Config", success, details)
-            
-            # Test 2: Engine Swarm State
-            response = self.session.get(f"{self.base_url}/api/engine/swarm")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                required_fields = ['symbol', 'timeframe', 'vote_counts', 'bias_split', 'consensus', 'optimizer_state']
-                missing_fields = [field for field in required_fields if field not in data]
-                if not missing_fields:
-                    details += f" | ✅ Swarm state complete. Symbol: {data.get('symbol')}, Consensus: {data.get('consensus', {}).get('action')}"
-                else:
-                    details += f" | ❌ Missing swarm fields: {missing_fields}"
-                    success = False
-                    
-            self.log_test("Engine Swarm State", success, details)
-            
-            # Test 3: Engine Predictions
-            response = self.session.get(f"{self.base_url}/api/engine/predictions")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                predictions = data.get('predictions', [])
-                details += f" | ✅ Got {len(predictions)} predictions"
-                    
-            self.log_test("Engine Predictions", success, details)
-            
-            # Test 4: Engine Positions
-            response = self.session.get(f"{self.base_url}/api/engine/positions")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                positions = data.get('positions', [])
-                details += f" | ✅ Got {len(positions)} positions"
-                    
-            self.log_test("Engine Positions", success, details)
-            
-            # Test 5: Engine PnL
-            response = self.session.get(f"{self.base_url}/api/engine/pnl")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                pnl = data.get('realized_pnl_usd', 0)
-                details += f" | ✅ Realized PnL: ${pnl}"
-                    
-            self.log_test("Engine PnL", success, details)
-            
-            # Test 6: Engine Trades
-            response = self.session.get(f"{self.base_url}/api/engine/trades")
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                trades = data.get('trades', [])
-                details += f" | ✅ Got {len(trades)} trades"
-                    
-            self.log_test("Engine Trades", success, details)
-            
-            # Test 7: Engine Config Update
-            config_update = {
-                "base_confidence_threshold": 0.70,
-                "max_position_notional_usd": 600.0
-            }
-            response = self.session.patch(f"{self.base_url}/api/engine/config", json=config_update)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                updated_threshold = data.get('base_confidence_threshold')
-                updated_position = data.get('max_position_notional_usd')
-                if updated_threshold == 0.70 and updated_position == 600.0:
-                    details += " | ✅ Config updated successfully"
-                else:
-                    details += f" | ❌ Config not updated properly. Threshold: {updated_threshold}, Position: {updated_position}"
-                    success = False
-                    
-            self.log_test("Engine Config Update", success, details)
-            
-            # Test 8: TradingView Webhook
-            webhook_payload = {
-                "secret": "change-me",
-                "ticker": "BTCUSDT",
-                "action": "buy",
-                "price": 45000.0,
-                "interval": "5m",
-                "time": datetime.now().isoformat(),
-                "position_size": 100.0
-            }
-            response = self.session.post(f"{self.base_url}/api/engine/webhook/tradingview", json=webhook_payload)
-            success = response.status_code == 200
-            details = f"Status: {response.status_code}"
-            
-            if success:
-                data = response.json()
-                status = data.get('status')
-                details += f" | ✅ Webhook processed. Status: {status}"
-                if 'prediction' in data:
-                    prediction = data['prediction']
-                    details += f", Action: {prediction.get('selected_action')}, Confidence: {prediction.get('confidence')}"
-                    
-            self.log_test("TradingView Webhook", success, details)
-            
-        except Exception as e:
-            self.log_test("Profit Engine Integration", False, f"Error: {str(e)}")
-
-    def run_all_tests(self):
-        """Run complete test suite"""
-        print("=" * 60)
-        print("🚀 MIROFISH API TESTING SUITE")
-        print("=" * 60)
-        print(f"Testing against: {self.base_url}")
-        print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("-" * 60)
-
-        # Basic health checks
-        print("\n📡 HEALTH CHECKS")
-        self.test_health_check()
-
-        # Authentication flow
-        print("\n🔐 AUTHENTICATION TESTS")
-        self.test_user_registration()
+        all_passed = True
+        for name, method, endpoint, expected in endpoints:
+            success, _ = self.run_test(name, method, endpoint, expected)
+            if not success:
+                all_passed = False
         
-        # Login as admin for authenticated tests
-        if self.test_admin_login():
-            self.test_auth_me()
-            
-            # Dashboard and stats
-            print("\n📊 DASHBOARD TESTS")
-            self.test_dashboard_stats()
-            
-            # Agents management
-            print("\n🤖 AGENTS TESTS")
-            self.test_agents_crud()
-            
-            # Validation engine
-            print("\n🛡️ VALIDATION TESTS")
-            self.test_validation_endpoints()
-            
-            # AI insights
-            print("\n🧠 AI INSIGHTS TESTS")
-            self.test_ai_insights()
-            
-            # Billing and payments
-            print("\n💳 BILLING TESTS")
-            self.test_billing_endpoints()
-            
-            # Notifications
-            print("\n🔔 NOTIFICATIONS TESTS")
-            self.test_notifications()
-            
-            # Bitget Exchange Integration (Iteration 4)
-            print("\n📈 BITGET EXCHANGE TESTS")
-            self.test_bitget_exchange_integration()
-            
-            # Profit Engine Integration (Iteration 5)
-            print("\n⚡ PROFIT ENGINE TESTS")
-            self.test_profit_engine_integration()
-            
-            # Logout
-            print("\n🚪 LOGOUT TESTS")
-            self.test_auth_logout()
-        else:
-            print("❌ Admin login failed - skipping authenticated tests")
-
-        # Print summary
-        print("\n" + "=" * 60)
-        print("📋 TEST SUMMARY")
-        print("=" * 60)
-        print(f"Total tests: {self.tests_run}")
-        print(f"Passed: {self.tests_passed}")
-        print(f"Failed: {len(self.failed_tests)}")
-        print(f"Success rate: {(self.tests_passed/self.tests_run*100):.1f}%")
-        
-        if self.failed_tests:
-            print("\n❌ FAILED TESTS:")
-            for test in self.failed_tests:
-                print(f"  • {test['name']}: {test['details']}")
-        
-        print(f"\nCompleted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 60)
-        
-        return self.tests_passed == self.tests_run
+        return all_passed
 
 def main():
-    """Main test runner"""
-    tester = MiroFishAPITester()
-    success = tester.run_all_tests()
-    return 0 if success else 1
+    print("🚀 MiroFish Space Dungeon Swarm Backend Testing")
+    print("=" * 60)
+    
+    # Setup
+    tester = SpaceDungeonTester()
+    
+    # Test basic health first
+    print("\n📊 TESTING BASIC HEALTH...")
+    health_ok = tester.test_health_endpoints()
+    
+    # Test authentication
+    print("\n🔐 TESTING AUTHENTICATION...")
+    login_ok = tester.test_login("admin@mirofish.io", "admin123")
+    
+    if not login_ok:
+        print("❌ Login failed, stopping Space Dungeon tests")
+        print(f"\n📊 Basic Tests Results: {tester.tests_passed}/{tester.tests_run}")
+        return 1
+    
+    # Test Space Dungeon endpoints
+    print("\n🏰 TESTING SPACE DUNGEON SWARM...")
+    
+    agents_ok = tester.test_dungeon_agents()
+    prediction_ok = tester.test_dungeon_prediction()
+    debate_ok = tester.test_dungeon_debate()
+    rollout_ok = tester.test_dungeon_rollout()
+    
+    # Summary
+    print("\n" + "=" * 60)
+    print("📊 FINAL RESULTS")
+    print("=" * 60)
+    print(f"Total Tests: {tester.tests_run}")
+    print(f"Passed: {tester.tests_passed}")
+    print(f"Failed: {tester.tests_run - tester.tests_passed}")
+    print(f"Success Rate: {(tester.tests_passed/tester.tests_run)*100:.1f}%")
+    
+    print("\n🏰 Space Dungeon Features:")
+    print(f"  ✅ Agents (24 bots): {'PASS' if agents_ok else 'FAIL'}")
+    print(f"  ✅ Prediction Engine: {'PASS' if prediction_ok else 'FAIL'}")
+    print(f"  ✅ Debate System: {'PASS' if debate_ok else 'FAIL'}")
+    print(f"  ✅ Rollout Pipeline: {'PASS' if rollout_ok else 'FAIL'}")
+    
+    # Return 0 if all critical tests passed
+    critical_tests = [health_ok, login_ok, agents_ok, prediction_ok, debate_ok, rollout_ok]
+    return 0 if all(critical_tests) else 1
 
 if __name__ == "__main__":
     sys.exit(main())

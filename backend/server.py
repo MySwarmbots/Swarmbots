@@ -1072,6 +1072,76 @@ async def engine_backtest(snapshots: list[pe.SignalSnapshot], request: Request):
     await get_current_user(request)
     return pe.run_backtest(snapshots)
 
+# ============== SPACE DUNGEON SWARM ROUTES ==============
+
+import swarm_dungeon as sd
+
+@api_router.get("/dungeon/agents")
+async def dungeon_agents():
+    return {"agents": sd.generate_agents()}
+
+@api_router.get("/dungeon/agents/{agent_id}")
+async def dungeon_agent(agent_id: str):
+    a = sd.get_agent(agent_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return a
+
+@api_router.get("/dungeon/debate")
+async def dungeon_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
+    stances = sd.run_debate(symbol, timeframe)
+    await ws_manager.broadcast({"type": "dungeon_debate", "data": {"symbol": symbol, "stances_count": len(stances)}})
+    return {"symbol": symbol, "timeframe": timeframe, "debate": stances}
+
+@api_router.get("/dungeon/prediction")
+async def dungeon_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m"):
+    result = sd.aggregate_prediction(symbol, timeframe)
+    await ws_manager.broadcast({"type": "dungeon_prediction", "data": {"symbol": symbol, "direction": result["direction"], "confidence": result["confidence"]}})
+    return result
+
+@api_router.get("/dungeon/predictions")
+async def dungeon_predictions():
+    return {"predictions": list(sd.prediction_log)}
+
+@api_router.get("/dungeon/debates")
+async def dungeon_debates():
+    return {"debates": list(sd.debate_log)}
+
+@api_router.get("/dungeon/rollout")
+async def dungeon_rollout():
+    return sd.rollout_summary()
+
+@api_router.post("/dungeon/rollout/promote")
+async def dungeon_promote(request: Request):
+    await get_current_user(request)
+    result = sd.promote()
+    await ws_manager.broadcast({"type": "dungeon_rollout", "data": result})
+    return result
+
+@api_router.post("/dungeon/rollout/demote")
+async def dungeon_demote(reason: str = "manual_demote", request: Request = None):
+    if request:
+        await get_current_user(request)
+    return sd.demote(reason)
+
+@api_router.post("/dungeon/rollout/set-stage")
+async def dungeon_set_stage(stage: str, request: Request = None):
+    if request:
+        await get_current_user(request)
+    return sd.set_stage(stage)
+
+@api_router.post("/dungeon/rollout/validation")
+async def dungeon_validation(passed: bool, reason: str = ""):
+    return sd.record_validation(passed, reason)
+
+@api_router.post("/dungeon/rollout/anomaly")
+async def dungeon_anomaly(message: str = "anomaly_detected"):
+    return sd.record_anomaly(message)
+
+@api_router.get("/dungeon/rollout/audit")
+async def dungeon_audit():
+    return {"audit": sd.get_audit()}
+
 # ============== WEBSOCKET TOKEN + ENDPOINT ==============
 
 @api_router.get("/ws-token")

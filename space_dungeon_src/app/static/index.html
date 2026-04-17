@@ -1,0 +1,353 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MiroFish v13.0 Space Dungeon Swarm Dashboard</title>
+  <style>
+    :root{
+      --bg:#050816;
+      --panel:#0b1023cc;
+      --line:#2c3d72;
+      --glow:#7cf3ff;
+      --violet:#a16bff;
+      --text:#dfeaff;
+      --accent:#62ffb0;
+      --danger:#ff6b8a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(124,243,255,.14), transparent 20%),
+        radial-gradient(circle at 80% 15%, rgba(161,107,255,.12), transparent 18%),
+        radial-gradient(circle at 50% 75%, rgba(98,255,176,.08), transparent 20%),
+        linear-gradient(180deg,#030611,#081224 55%,#050816);
+      overflow:hidden;
+    }
+    .stars, .stars:after, .stars:before{
+      position:fixed; inset:0; content:"";
+      background-image:
+        radial-gradient(2px 2px at 10% 20%, #fff, transparent 45%),
+        radial-gradient(2px 2px at 30% 70%, #9fd9ff, transparent 45%),
+        radial-gradient(2px 2px at 80% 40%, #fff, transparent 45%),
+        radial-gradient(1.5px 1.5px at 65% 15%, #d7cbff, transparent 45%),
+        radial-gradient(1.5px 1.5px at 55% 85%, #fff, transparent 45%);
+      opacity:.55;
+      pointer-events:none;
+    }
+    .stars:before{transform:scale(1.2); opacity:.35}
+    .stars:after{transform:scale(1.5); opacity:.18}
+    .layout{
+      display:grid;
+      grid-template-columns: 330px 1fr 360px;
+      gap:16px;
+      padding:16px;
+      height:100vh;
+      position:relative;
+      z-index:1;
+    }
+    .panel{
+      background:var(--panel);
+      border:1px solid rgba(124,243,255,.18);
+      box-shadow:0 0 0 1px rgba(255,255,255,.03) inset, 0 0 24px rgba(56,126,255,.10);
+      border-radius:18px;
+      overflow:hidden;
+      backdrop-filter: blur(10px);
+    }
+    .panel h3{
+      margin:0; padding:14px 16px;
+      border-bottom:1px solid rgba(124,243,255,.12);
+      letter-spacing:.06em; text-transform:uppercase; font-size:12px; color:#bdefff;
+    }
+    .left,.right{display:grid; gap:16px; grid-auto-rows:min-content}
+    .center{display:grid; gap:16px; grid-template-rows: 1fr 210px;}
+    .viewport{
+      position:relative;
+      min-height:500px;
+      background:
+        radial-gradient(circle at center, rgba(98,255,176,.08), transparent 22%),
+        linear-gradient(180deg, rgba(8,16,34,.4), rgba(2,4,10,.85));
+    }
+    .dungeon{
+      position:absolute; inset:18px;
+      border-radius:22px;
+      border:1px solid rgba(124,243,255,.18);
+      background:
+        radial-gradient(circle at 50% 40%, rgba(124,243,255,.12), transparent 18%),
+        linear-gradient(180deg, rgba(17,28,58,.38), rgba(8,12,22,.85));
+      overflow:hidden;
+      perspective: 1000px;
+    }
+    .grid{
+      position:absolute; inset:0;
+      background:
+        linear-gradient(rgba(124,243,255,.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,243,255,.07) 1px, transparent 1px);
+      background-size: 48px 48px;
+      transform:rotateX(70deg) translateY(28%);
+      transform-origin:center;
+      opacity:.45;
+    }
+    .portal{
+      position:absolute; left:50%; top:48%;
+      width:220px; height:220px; transform:translate(-50%,-50%);
+      border-radius:50%;
+      box-shadow: 0 0 0 2px rgba(124,243,255,.22), 0 0 55px rgba(124,243,255,.18), inset 0 0 50px rgba(98,255,176,.12);
+      background:radial-gradient(circle, rgba(124,243,255,.12), rgba(161,107,255,.05) 45%, transparent 70%);
+      filter: blur(.2px);
+      animation:pulse 4s infinite ease-in-out;
+    }
+    @keyframes pulse{
+      0%,100%{transform:translate(-50%,-50%) scale(1)}
+      50%{transform:translate(-50%,-50%) scale(1.04)}
+    }
+    .sector{
+      position:absolute;
+      border:1px solid rgba(161,107,255,.18);
+      background:rgba(161,107,255,.05);
+      border-radius:16px;
+      box-shadow: inset 0 0 18px rgba(124,243,255,.05);
+    }
+    .robot{
+      position:absolute;
+      width:38px; height:38px;
+      border-radius:10px;
+      background:linear-gradient(180deg,#b8fbff,#53b4ff);
+      box-shadow:0 0 12px rgba(124,243,255,.5);
+      transform:translate(-50%,-50%);
+      animation:float 3s infinite ease-in-out;
+    }
+    .robot:before, .robot:after{
+      content:""; position:absolute; top:10px; width:6px; height:6px; border-radius:50%; background:#001420;
+    }
+    .robot:before{left:9px} .robot:after{right:9px}
+    .robot .tag{
+      position:absolute; top:-16px; left:50%; transform:translateX(-50%);
+      white-space:nowrap; font-size:10px; color:#cffbff;
+      text-shadow:0 0 8px rgba(124,243,255,.7);
+    }
+    @keyframes float{
+      0%,100%{margin-top:0}
+      50%{margin-top:-8px}
+    }
+    .hud{
+      position:absolute; inset:14px; pointer-events:none;
+      border:1px solid rgba(255,255,255,.04); border-radius:18px;
+    }
+    .mini-list,.log,.stats,.cards{padding:12px 14px}
+    .cards{display:grid; gap:10px; max-height:250px; overflow:auto}
+    .card{
+      border:1px solid rgba(124,243,255,.13);
+      border-radius:12px;
+      padding:10px 12px;
+      background:rgba(8,14,30,.75);
+    }
+    .card .title{font-weight:700; margin-bottom:4px}
+    .small{font-size:12px; opacity:.86}
+    .log{max-height:210px; overflow:auto; font-size:12px; line-height:1.5}
+    .stat-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px}
+    .stat{
+      padding:12px; border-radius:12px;
+      background:rgba(7,12,28,.72);
+      border:1px solid rgba(124,243,255,.12);
+    }
+    .stat .k{font-size:11px; text-transform:uppercase; opacity:.72}
+    .stat .v{font-size:22px; margin-top:6px; color:#e9fbff}
+    .terminal{
+      font-family:monospace;
+      background:rgba(3,7,18,.82);
+      height:100%;
+      border-top:1px solid rgba(124,243,255,.12);
+      overflow:auto;
+      padding:12px;
+      color:#b6ffc6;
+    }
+    .topbar{
+      display:flex; justify-content:space-between; align-items:center;
+      padding:12px 16px; border-bottom:1px solid rgba(124,243,255,.12);
+    }
+    .badge{
+      display:inline-block; padding:6px 10px; border-radius:999px;
+      font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+      border:1px solid rgba(124,243,255,.18);
+      background:rgba(124,243,255,.08);
+    }
+    button{
+      background:linear-gradient(180deg,#1b315f,#142243);
+      color:#dff9ff; border:1px solid rgba(124,243,255,.2);
+      padding:8px 12px; border-radius:10px; cursor:pointer;
+    }
+    .controls{display:flex; gap:8px; flex-wrap:wrap}
+    .good{color:var(--accent)} .warn{color:#ffd26b} .bad{color:var(--danger)}
+  </style>
+</head>
+<body>
+<div class="stars"></div>
+<div class="layout">
+  <div class="left">
+    <div class="panel">
+      <h3>Swarm Roster</h3>
+      <div class="cards" id="agents"></div>
+    </div>
+    <div class="panel">
+      <h3>Rollout State</h3>
+      <div class="stats">
+        <div class="stat-grid">
+          <div class="stat"><div class="k">Stage</div><div class="v" id="stage">-</div></div>
+          <div class="stat"><div class="k">Capital</div><div class="v" id="capital">-</div></div>
+          <div class="stat"><div class="k">Passed</div><div class="v" id="passed">-</div></div>
+          <div class="stat"><div class="k">Blocked</div><div class="v" id="blocked">-</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="center">
+    <div class="panel viewport">
+      <div class="topbar">
+        <div>
+          <strong>MiroFish Space Dungeon</strong>
+          <span class="badge">Autonomous Swarm Command Center</span>
+        </div>
+        <div class="controls">
+          <button onclick="refreshAll()">Refresh</button>
+          <button onclick="runPrediction()">Run Prediction</button>
+          <button onclick="promoteRollout()">Promote Stage</button>
+        </div>
+      </div>
+      <div class="dungeon">
+        <div class="grid"></div>
+        <div class="portal"></div>
+        <div class="sector" style="left:8%;top:10%;width:22%;height:20%;"></div>
+        <div class="sector" style="right:8%;top:12%;width:24%;height:18%;"></div>
+        <div class="sector" style="left:10%;bottom:12%;width:26%;height:20%;"></div>
+        <div class="sector" style="right:9%;bottom:10%;width:22%;height:22%;"></div>
+        <div class="hud"></div>
+        <div id="robots"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Command Terminal</h3>
+      <div class="terminal" id="terminal"></div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel">
+      <h3>Swarm Prediction</h3>
+      <div class="cards">
+        <div class="card">
+          <div class="title">Current Bias</div>
+          <div id="predictionBias" class="small">No prediction yet.</div>
+        </div>
+        <div class="card">
+          <div class="title">Vote Scores</div>
+          <div id="predictionVotes" class="small">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Debate Feed</h3>
+      <div class="log" id="debate"></div>
+    </div>
+    <div class="panel">
+      <h3>Rollout Audit</h3>
+      <div class="log" id="audit"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s){return String(s).replace(/[&<>"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));}
+async function j(u, opts){ const r = await fetch(u, opts||{}); return await r.json(); }
+
+function appendTerminal(msg){
+  const el = document.getElementById('terminal');
+  const ts = new Date().toLocaleTimeString();
+  el.innerHTML = `[${ts}] ${esc(msg)}\n` + el.innerHTML;
+}
+
+function renderAgents(agents){
+  const agentWrap = document.getElementById('agents');
+  const robotWrap = document.getElementById('robots');
+  agentWrap.innerHTML = '';
+  robotWrap.innerHTML = '';
+  agents.slice(0,12).forEach((a, idx)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="title">${esc(a.agent_id)} · ${esc(a.role)}</div>
+      <div class="small">personality: <span class="good">${esc(a.personality)}</span></div>
+      <div class="small">sector: ${esc(a.sector)} · status: ${esc(a.status)}</div>
+      <div class="small">energy: ${a.energy}</div>
+    `;
+    agentWrap.appendChild(card);
+
+    const robot = document.createElement('div');
+    robot.className = 'robot';
+    const x = 12 + (idx % 4) * 23 + Math.random() * 6;
+    const y = 18 + Math.floor(idx / 4) * 20 + Math.random() * 8;
+    robot.style.left = x + '%';
+    robot.style.top = y + '%';
+    robot.style.animationDelay = (idx * 0.18) + 's';
+    robot.innerHTML = `<div class="tag">${esc(a.agent_id)}</div>`;
+    robotWrap.appendChild(robot);
+  });
+}
+
+function renderRollout(state){
+  document.getElementById('stage').textContent = state.stage || '-';
+  document.getElementById('capital').textContent = '$' + (state.allocated_capital_usd ?? 0);
+  document.getElementById('passed').textContent = state.passed_validations ?? 0;
+  document.getElementById('blocked').textContent = state.blocked ? 'YES' : 'NO';
+}
+
+function renderAudit(audit){
+  const el = document.getElementById('audit');
+  el.innerHTML = audit.map(x => `<div><span class="warn">${esc(x.action)}</span> · ${esc(x.stage_before)} → ${esc(x.stage_after)}<br><span class="small">${esc(x.message || '')}</span></div><hr style="border-color:#22375f22">`).join('');
+}
+
+function renderPrediction(data){
+  document.getElementById('predictionBias').innerHTML = `<span class="${data.direction === 'long_bias' ? 'good' : data.direction === 'short_bias' ? 'bad' : 'warn'}">${esc(data.direction)}</span> · confidence ${data.confidence}`;
+  document.getElementById('predictionVotes').innerHTML = `
+    bullish ${data.votes.bullish_score}<br>
+    bearish ${data.votes.bearish_score}<br>
+    neutral ${data.votes.neutral_score}
+  `;
+  const debate = document.getElementById('debate');
+  debate.innerHTML = data.debate.map(x => `<div><strong>${esc(x.agent_id)}</strong> · <span class="${x.bias==='bullish'?'good':x.bias==='bearish'?'bad':'warn'}">${esc(x.bias)}</span> · ${x.confidence}<br>${esc(x.rationale)}</div><hr style="border-color:#22375f22">`).join('');
+  appendTerminal(`Prediction completed for ${data.symbol} ${data.timeframe}: ${data.direction} at confidence ${data.confidence}`);
+}
+
+async function refreshAll(){
+  const [agentsData, rolloutData, auditData] = await Promise.all([
+    j('/api/swarm/agents'),
+    j('/api/rollout/summary'),
+    j('/api/rollout/audit')
+  ]);
+  renderAgents(agentsData.agents || []);
+  renderRollout(rolloutData);
+  renderAudit(auditData.audit || []);
+  appendTerminal('Dashboard refresh complete.');
+}
+
+async function runPrediction(){
+  const pred = await j('/api/swarm/prediction?symbol=BTCUSDT&timeframe=15m');
+  renderPrediction(pred);
+}
+
+async function promoteRollout(){
+  const res = await j('/api/rollout/promote', {method:'POST'});
+  appendTerminal('Rollout promotion attempted.');
+  await refreshAll();
+}
+
+refreshAll();
+runPrediction();
+setInterval(refreshAll, 12000);
+</script>
+</body>
+</html>

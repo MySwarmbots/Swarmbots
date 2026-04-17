@@ -361,12 +361,12 @@ function DashboardLayout({ children }) {
 
   const navItems = [
     { icon: Activity, label: "Dashboard", path: "/dashboard" },
+    { icon: Layers, label: "Dungeon", path: "/dungeon" },
     { icon: ArrowUpDown, label: "Exchange", path: "/exchange" },
     { icon: Zap, label: "Engine", path: "/engine" },
     { icon: Bot, label: "Agents", path: "/agents" },
     { icon: BarChart3, label: "Charts", path: "/charts" },
     { icon: Shield, label: "Validation", path: "/validation" },
-    { icon: Terminal, label: "AI", path: "/insights" },
     { icon: Bell, label: "Alerts", path: "/notifications", badge: unread },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
@@ -1176,6 +1176,240 @@ function PaymentCancelPage() {
   );
 }
 
+// ============== SPACE DUNGEON PAGE ==============
+function DungeonPage() {
+  const [dungeonAgents, setDungeonAgents] = useState([]);
+  const [selectedBot, setSelectedBot] = useState(null);
+  const [prediction, setPrediction] = useState(null);
+  const [debate, setDebate] = useState([]);
+  const [rollout, setRollout] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [predLoading, setPredLoading] = useState(false);
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const { lastMessage } = useWs();
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [a, r] = await Promise.all([
+        axios.get(`${API}/api/dungeon/agents`, { withCredentials: true }),
+        axios.get(`${API}/api/dungeon/rollout`, { withCredentials: true }),
+      ]);
+      setDungeonAgents(a.data.agents); setRollout(r.data);
+    } catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 8000); return () => clearInterval(i); }, [fetchAll]);
+
+  useEffect(() => {
+    if (lastMessage && ["dungeon_debate", "dungeon_prediction", "dungeon_rollout"].includes(lastMessage.type)) fetchAll();
+  }, [lastMessage, fetchAll]);
+
+  const runPrediction = async () => {
+    setPredLoading(true);
+    try {
+      const { data } = await axios.get(`${API}/api/dungeon/prediction?symbol=${symbol}`, { withCredentials: true });
+      setPrediction(data); setDebate(data.debate);
+    } catch { toast.error("Prediction failed"); }
+    finally { setPredLoading(false); }
+  };
+
+  const promoteRollout = async () => {
+    try { const { data } = await axios.post(`${API}/api/dungeon/rollout/promote`, {}, { withCredentials: true }); if (data.promoted) toast.success("Stage promoted!"); else toast.warning(data.reason); fetchAll(); }
+    catch { toast.error("Promote failed"); }
+  };
+
+  // Group agents by sector for the dungeon view
+  const sectorGroups = {};
+  dungeonAgents.forEach(a => { if (!sectorGroups[a.sector]) sectorGroups[a.sector] = []; sectorGroups[a.sector].push(a); });
+
+  const statusColor = (s) => ({ patrolling: "#00FF66", debating: "#FFCC00", backtesting: "#002FA7", routing: "#FF6B00", resting: "#555555", "mining-data": "#00BFFF", analyzing: "#FF00FF" }[s] || "#8A8A8A");
+
+  if (loading) return <DashboardLayout><div className="font-mono text-sm text-[#8A8A8A]">INITIALIZING DUNGEON<span className="cursor-blink"></span></div></DashboardLayout>;
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="font-heading text-2xl font-bold tracking-tight text-white">SPACE DUNGEON</h2>
+            <p className="font-mono text-[10px] text-[#555555]">{dungeonAgents.length} AUTONOMOUS AGENTS ACTIVE</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} className="w-28 bg-[#0A0A0A] border-[#333333] rounded-none text-white font-mono text-xs h-8" data-testid="dungeon-symbol-input" />
+            <Button onClick={runPrediction} disabled={predLoading} className="bg-[#00FF66] text-black hover:bg-[#00DD55] rounded-none h-8 text-xs" data-testid="run-prediction-btn">
+              {predLoading ? <RefreshCw size={14} className="animate-spin" /> : <><Zap size={14} className="mr-1" />PREDICT</>}
+            </Button>
+          </div>
+        </div>
+
+        {/* Rollout Stage Bar */}
+        <Card className="bg-[#111111] border-[#222222] p-3 rounded-none">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[10px] tracking-[0.15em] text-[#555555]">ROLLOUT PIPELINE</span>
+            <Button size="sm" onClick={promoteRollout} disabled={!rollout?.promotion_ready} className="bg-transparent border border-[#333333] text-white hover:bg-white hover:text-black rounded-none text-[10px] h-6 px-2" data-testid="promote-btn">PROMOTE</Button>
+          </div>
+          <div className="flex gap-1">
+            {["shadow", "canary", "phase1", "phase2", "full"].map((stage) => {
+              const active = rollout?.stage === stage;
+              const idx = ["shadow", "canary", "phase1", "phase2", "full"].indexOf(stage);
+              const currentIdx = ["shadow", "canary", "phase1", "phase2", "full"].indexOf(rollout?.stage || "shadow");
+              const passed = idx < currentIdx;
+              return (
+                <div key={stage} className={`flex-1 h-2 ${active ? 'bg-[#00FF66]' : passed ? 'bg-[#00FF66] opacity-40' : 'bg-[#222222]'}`} data-testid={`stage-${stage}`}></div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="font-mono text-[10px] text-[#8A8A8A]">STAGE: {rollout?.stage?.toUpperCase()}</span>
+            <span className="font-mono text-[10px] text-[#FFCC00]">CAPITAL: ${rollout?.allocated_capital_usd?.toFixed(0)}</span>
+          </div>
+        </Card>
+
+        {/* Prediction Result */}
+        {prediction && (
+          <Card className="bg-[#0A0A0A] border-[#222222] p-4 rounded-none" data-testid="prediction-result">
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">SWARM PREDICTION: {prediction.symbol}</span>
+              <span className="font-mono text-[10px] text-[#555555]">{new Date(prediction.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4 mb-3">
+              <div className="text-center">
+                <p className={`font-mono text-2xl font-bold ${prediction.direction === 'long_bias' ? 'text-[#00FF66]' : prediction.direction === 'short_bias' ? 'text-[#FF3B30]' : 'text-[#FFCC00]'}`}>
+                  {prediction.direction === 'long_bias' ? 'LONG' : prediction.direction === 'short_bias' ? 'SHORT' : 'WAIT'}
+                </p>
+                <p className="font-mono text-[10px] text-[#555555]">DIRECTION</p>
+              </div>
+              <div className="text-center">
+                <p className="font-mono text-2xl font-bold text-white tabular-nums">{(prediction.confidence * 100).toFixed(1)}%</p>
+                <p className="font-mono text-[10px] text-[#555555]">CONFIDENCE</p>
+              </div>
+              <div className="text-center">
+                <div className="flex justify-center gap-3">
+                  <span className="font-mono text-xs text-[#00FF66] tabular-nums">{prediction.votes.bullish_count}B</span>
+                  <span className="font-mono text-xs text-[#FF3B30] tabular-nums">{prediction.votes.bearish_count}S</span>
+                  <span className="font-mono text-xs text-[#8A8A8A] tabular-nums">{prediction.votes.neutral_count}N</span>
+                </div>
+                <p className="font-mono text-[10px] text-[#555555]">VOTES</p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* 3D Dungeon Visualization — Sector Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {Object.entries(sectorGroups).map(([sector, bots]) => (
+            <Card key={sector} className="bg-[#0A0A0A] border-[#1A1A1A] p-3 rounded-none relative overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #080812 100%)' }}>
+              {/* Sector stars background */}
+              <div className="absolute inset-0 opacity-20" style={{ background: 'radial-gradient(1px 1px at 20% 30%, white, transparent), radial-gradient(1px 1px at 70% 60%, white, transparent), radial-gradient(1px 1px at 40% 80%, white, transparent), radial-gradient(1px 1px at 80% 20%, white, transparent), radial-gradient(1px 1px at 10% 70%, white, transparent)' }}></div>
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-[10px] tracking-[0.15em] text-[#8A8A8A]">{sector.toUpperCase()}</span>
+                  <span className="font-mono text-[10px] text-[#555555]">{bots.length} bots</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {bots.map((bot) => (
+                    <button key={bot.agent_id} onClick={() => setSelectedBot(selectedBot?.agent_id === bot.agent_id ? null : bot)}
+                      className={`relative group transition-all duration-150 ${selectedBot?.agent_id === bot.agent_id ? 'scale-110' : 'hover:scale-105'}`}
+                      title={`${bot.name} — ${bot.status}`}
+                      data-testid={`bot-${bot.agent_id}`}>
+                      {/* Robot avatar */}
+                      <div className="w-8 h-8 flex items-center justify-center border rounded-sm transition-all"
+                        style={{ borderColor: bot.color, background: `${bot.color}15`, boxShadow: selectedBot?.agent_id === bot.agent_id ? `0 0 8px ${bot.color}` : 'none' }}>
+                        <Bot size={14} style={{ color: bot.color }} />
+                      </div>
+                      {/* Status dot */}
+                      <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ backgroundColor: statusColor(bot.status) }}></div>
+                      {/* Energy bar */}
+                      <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#222222] rounded-full overflow-hidden">
+                        <div className="h-full" style={{ width: `${bot.energy}%`, backgroundColor: bot.energy > 50 ? '#00FF66' : bot.energy > 25 ? '#FFCC00' : '#FF3B30' }}></div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        {/* Selected Bot Detail + Debate Feed */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Bot Detail */}
+          <Card className="bg-[#111111] border-[#222222] p-4 rounded-none">
+            <h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase mb-3">AGENT INSPECTOR</h3>
+            {selectedBot ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 flex items-center justify-center border rounded-sm" style={{ borderColor: selectedBot.color, background: `${selectedBot.color}20`, boxShadow: `0 0 12px ${selectedBot.color}40` }}>
+                    <Bot size={24} style={{ color: selectedBot.color }} />
+                  </div>
+                  <div>
+                    <p className="font-mono text-sm font-medium text-white">{selectedBot.name}</p>
+                    <p className="font-mono text-[10px] text-[#8A8A8A]">{selectedBot.role} / {selectedBot.personality}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><p className="font-mono text-[10px] text-[#555555]">ENERGY</p><p className="font-mono text-sm text-white">{selectedBot.energy}%</p></div>
+                  <div><p className="font-mono text-[10px] text-[#555555]">WIN RATE</p><p className="font-mono text-sm text-[#00FF66]">{(selectedBot.win_rate * 100).toFixed(0)}%</p></div>
+                  <div><p className="font-mono text-[10px] text-[#555555]">PREDICTIONS</p><p className="font-mono text-sm text-white">{selectedBot.total_predictions}</p></div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-[#555555]">STATUS:</span>
+                  <span className="font-mono text-xs" style={{ color: statusColor(selectedBot.status) }}>{selectedBot.status.toUpperCase()}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-[#555555]">SECTOR:</span>
+                  <span className="font-mono text-xs text-white">{selectedBot.sector}</span>
+                </div>
+                <div className="terminal-bg p-2">
+                  <p className="font-mono text-[10px] text-[#555555] mb-1">MEMORY LOG:</p>
+                  {selectedBot.memory.map((m, i) => (
+                    <p key={i} className="font-mono text-[10px] text-[#8A8A8A]">{'>'} {m}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6"><Bot size={32} className="mx-auto text-[#333333] mb-2" /><p className="font-mono text-xs text-[#8A8A8A]">SELECT A BOT TO INSPECT</p></div>
+            )}
+          </Card>
+
+          {/* Debate Feed */}
+          <Card className="bg-[#111111] border-[#222222] rounded-none overflow-hidden">
+            <div className="p-4 border-b border-[#222222]">
+              <h3 className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">DEBATE FEED ({debate.length})</h3>
+            </div>
+            <ScrollArea className="h-[300px]">
+              {debate.length === 0 ? (
+                <div className="p-6 text-center"><Terminal size={32} className="mx-auto text-[#333333] mb-2" /><p className="font-mono text-xs text-[#8A8A8A]">RUN A PREDICTION TO SEE THE DEBATE</p></div>
+              ) : (
+                <div className="p-2 space-y-2">
+                  {debate.map((d, i) => (
+                    <div key={i} className="border border-[#1A1A1A] p-2 hover:bg-[#151515] transition-colors" data-testid={`debate-${i}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 flex items-center justify-center" style={{ color: d.color }}><Bot size={10} /></div>
+                          <span className="font-mono text-[10px] text-white font-medium">{d.name}</span>
+                          <span className="font-mono text-[8px] text-[#555555]">{d.role}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className={`font-mono text-[10px] font-medium ${d.bias === 'bullish' ? 'text-[#00FF66]' : d.bias === 'bearish' ? 'text-[#FF3B30]' : 'text-[#8A8A8A]'}`}>
+                            {d.bias.toUpperCase()}
+                          </span>
+                          <span className="font-mono text-[10px] text-[#FFCC00] tabular-nums">{(d.confidence * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                      <p className="font-mono text-[10px] text-[#8A8A8A] leading-relaxed">{d.rationale}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </Card>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}
+
 // ============== PROFIT ENGINE PAGE ==============
 function EnginePage() {
   const [swarm, setSwarm] = useState(null);
@@ -1757,6 +1991,7 @@ function App() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+            <Route path="/dungeon" element={<ProtectedRoute><DungeonPage /></ProtectedRoute>} />
             <Route path="/exchange" element={<ProtectedRoute><ExchangePage /></ProtectedRoute>} />
             <Route path="/engine" element={<ProtectedRoute><EnginePage /></ProtectedRoute>} />
             <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
