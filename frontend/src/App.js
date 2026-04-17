@@ -487,45 +487,76 @@ function DashboardPage() {
           ))}
         </div>
 
-        {/* Live Dungeon Avatars */}
-        <Card className="bg-[#0A0A0A] border-[#1A1A1A] p-4 rounded-none relative overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #080812 100%)' }}>
-          <div className="absolute inset-0 opacity-15" style={{ background: 'radial-gradient(1px 1px at 10% 20%, white, transparent), radial-gradient(1px 1px at 30% 50%, white, transparent), radial-gradient(1px 1px at 55% 15%, white, transparent), radial-gradient(1px 1px at 75% 65%, white, transparent), radial-gradient(1px 1px at 90% 35%, white, transparent), radial-gradient(1px 1px at 45% 85%, white, transparent)' }}></div>
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Layers size={14} className="text-[#8A8A8A]" />
-                <span className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">SPACE DUNGEON — {dungeon?.agents?.length || 0} AGENTS LIVE</span>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate("/dungeon")} className="text-[#8A8A8A] hover:text-white font-mono text-[10px]" data-testid="goto-dungeon">
-                OPEN DUNGEON <ChevronRight size={12} className="ml-1" />
-              </Button>
+        {/* Live Dungeon Rooms */}
+        <div data-testid="dungeon-rooms-dashboard">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-[#8A8A8A]" />
+              <span className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">SPACE DUNGEON — {dungeon?.agents?.length || 0} AGENTS LIVE</span>
             </div>
-            {/* Avatar Grid */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {(dungeon?.agents || []).map((bot) => (
-                <div key={bot.agent_id} className="relative group" title={`${bot.name} — ${bot.status} — ${bot.sector}`}>
-                  <div className="w-7 h-7 flex items-center justify-center border rounded-sm transition-all hover:scale-110"
-                    style={{ borderColor: bot.color, background: `${bot.color}12` }}>
-                    <Bot size={12} style={{ color: bot.color }} />
-                  </div>
-                  <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor(bot.status) }}></div>
-                </div>
-              ))}
-            </div>
-            {/* Latest Prediction */}
-            {latestPred && (
-              <div className="flex items-center gap-4 pt-2 border-t border-[#1A1A1A]">
-                <span className="font-mono text-[10px] text-[#555555]">LATEST:</span>
-                <span className="font-mono text-xs text-white">{latestPred.symbol}</span>
-                <span className={`font-mono text-xs font-medium ${latestPred.direction === 'long_bias' ? 'text-[#00FF66]' : latestPred.direction === 'short_bias' ? 'text-[#FF3B30]' : 'text-[#FFCC00]'}`}>
-                  {latestPred.direction === 'long_bias' ? 'LONG' : latestPred.direction === 'short_bias' ? 'SHORT' : 'WAIT'}
-                </span>
-                <span className="font-mono text-xs text-white tabular-nums">{(latestPred.confidence * 100).toFixed(1)}%</span>
-                <span className="font-mono text-[10px] text-[#555555]">{new Date(latestPred.timestamp).toLocaleTimeString()}</span>
-              </div>
-            )}
+            <Button variant="ghost" size="sm" onClick={() => navigate("/dungeon")} className="text-[#8A8A8A] hover:text-white font-mono text-[10px]" data-testid="goto-dungeon">
+              OPEN DUNGEON <ChevronRight size={12} className="ml-1" />
+            </Button>
           </div>
-        </Card>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            {(() => {
+              const sectorGroupsDash = {};
+              (dungeon?.agents || []).forEach(a => { if (!sectorGroupsDash[a.sector]) sectorGroupsDash[a.sector] = []; sectorGroupsDash[a.sector].push(a); });
+              const roomThemes = {
+                "Vault-1": { bg: "linear-gradient(135deg, #0D0022 0%, #1A0044 50%, #0D0022 100%)", border: "#7B2FBE", glow: "rgba(123,47,190,0.3)", accent: "#B06FFF" },
+                "Forge-2": { bg: "linear-gradient(135deg, #001A0D 0%, #003322 50%, #001A0D 100%)", border: "#00FF66", glow: "rgba(0,255,102,0.2)", accent: "#00FF66" },
+                "Bridge-3": { bg: "linear-gradient(135deg, #001122 0%, #002244 50%, #001122 100%)", border: "#002FA7", glow: "rgba(0,47,167,0.3)", accent: "#4488FF" },
+                "Signal-Spire": { bg: "linear-gradient(135deg, #1A1A00 0%, #333300 50%, #1A1A00 100%)", border: "#FFCC00", glow: "rgba(255,204,0,0.2)", accent: "#FFCC00" },
+                "Risk-Crypt": { bg: "linear-gradient(135deg, #1A0000 0%, #330011 50%, #1A0000 100%)", border: "#FF3B30", glow: "rgba(255,59,48,0.2)", accent: "#FF6655" },
+                "Data-Nexus": { bg: "linear-gradient(135deg, #001A1A 0%, #003333 50%, #001A1A 100%)", border: "#00BFFF", glow: "rgba(0,191,255,0.2)", accent: "#00BFFF" },
+              };
+              return Object.entries(sectorGroupsDash).map(([sector, bots]) => {
+                const theme = roomThemes[sector] || roomThemes["Data-Nexus"];
+                return (
+                  <div key={sector} className="relative overflow-hidden rounded-sm cursor-pointer group" onClick={() => navigate("/dungeon")}
+                    style={{ background: theme.bg, border: `1px solid ${theme.border}30`, minHeight: 110, boxShadow: `inset 0 0 30px ${theme.glow}, 0 0 15px ${theme.glow}` }}
+                    data-testid={`room-${sector}`}>
+                    {/* Room neon border glow */}
+                    <div className="absolute inset-0 opacity-30 group-hover:opacity-50 transition-opacity" style={{ boxShadow: `inset 0 0 20px ${theme.glow}, inset 0 -2px 0 ${theme.border}` }}></div>
+                    {/* Holographic grid floor */}
+                    <div className="absolute bottom-0 left-0 right-0 h-8 opacity-20" style={{ background: `repeating-linear-gradient(90deg, ${theme.border}20 0px, transparent 1px, transparent 10px), repeating-linear-gradient(0deg, ${theme.border}20 0px, transparent 1px, transparent 10px)` }}></div>
+                    {/* Room label */}
+                    <div className="relative z-10 p-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-[8px] tracking-[0.15em] uppercase" style={{ color: theme.accent }}>{sector}</span>
+                        <span className="font-mono text-[8px]" style={{ color: `${theme.accent}80` }}>{bots.length}</span>
+                      </div>
+                      {/* Bot avatars in room */}
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        {bots.map((bot) => (
+                          <div key={bot.agent_id} className="relative transition-transform hover:scale-125" title={bot.name}>
+                            <div className="w-6 h-6 flex items-center justify-center rounded-full transition-all"
+                              style={{ background: `radial-gradient(circle, ${bot.color}30 0%, transparent 70%)`, border: `1px solid ${bot.color}60`, boxShadow: `0 0 6px ${bot.color}40` }}>
+                              <Bot size={10} style={{ color: bot.color }} />
+                            </div>
+                            <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-3 h-0.5 rounded-full opacity-50" style={{ backgroundColor: statusColor(bot.status) }}></div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+          {/* Latest Prediction */}
+          {latestPred && (
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-[#1A1A1A]">
+              <span className="font-mono text-[10px] text-[#555555]">LATEST:</span>
+              <span className="font-mono text-xs text-white">{latestPred.symbol}</span>
+              <span className={`font-mono text-xs font-medium ${latestPred.direction === 'long_bias' ? 'text-[#00FF66]' : latestPred.direction === 'short_bias' ? 'text-[#FF3B30]' : 'text-[#FFCC00]'}`}>
+                {latestPred.direction === 'long_bias' ? 'LONG' : latestPred.direction === 'short_bias' ? 'SHORT' : 'WAIT'}
+              </span>
+              <span className="font-mono text-xs text-white tabular-nums">{(latestPred.confidence * 100).toFixed(1)}%</span>
+              <span className="font-mono text-[10px] text-[#555555]">{new Date(latestPred.timestamp).toLocaleTimeString()}</span>
+            </div>
+          )}
+        </div>
 
         {/* Quick Actions + System Status */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1502,40 +1533,65 @@ function DungeonPage() {
           </Card>
         )}
 
-        {/* 3D Dungeon Visualization — Sector Grid */}
+        {/* 3D Dungeon Rooms — Cyberpunk Sector Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {Object.entries(sectorGroups).map(([sector, bots]) => (
-            <Card key={sector} className="bg-[#0A0A0A] border-[#1A1A1A] p-3 rounded-none relative overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #080812 100%)' }}>
-              {/* Sector stars background */}
-              <div className="absolute inset-0 opacity-20" style={{ background: 'radial-gradient(1px 1px at 20% 30%, white, transparent), radial-gradient(1px 1px at 70% 60%, white, transparent), radial-gradient(1px 1px at 40% 80%, white, transparent), radial-gradient(1px 1px at 80% 20%, white, transparent), radial-gradient(1px 1px at 10% 70%, white, transparent)' }}></div>
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-[10px] tracking-[0.15em] text-[#8A8A8A]">{sector.toUpperCase()}</span>
-                  <span className="font-mono text-[10px] text-[#555555]">{bots.length} bots</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {bots.map((bot) => (
-                    <button key={bot.agent_id} onClick={() => setSelectedBot(selectedBot?.agent_id === bot.agent_id ? null : bot)}
-                      className={`relative group transition-all duration-150 ${selectedBot?.agent_id === bot.agent_id ? 'scale-110' : 'hover:scale-105'}`}
-                      title={`${bot.name} — ${bot.status}`}
-                      data-testid={`bot-${bot.agent_id}`}>
-                      {/* Robot avatar */}
-                      <div className="w-8 h-8 flex items-center justify-center border rounded-sm transition-all"
-                        style={{ borderColor: bot.color, background: `${bot.color}15`, boxShadow: selectedBot?.agent_id === bot.agent_id ? `0 0 8px ${bot.color}` : 'none' }}>
-                        <Bot size={14} style={{ color: bot.color }} />
+          {(() => {
+            const roomThemes = {
+              "Vault-1": { bg: "linear-gradient(135deg, #0D0022 0%, #1A0044 50%, #0D0022 100%)", border: "#7B2FBE", glow: "rgba(123,47,190,0.35)", accent: "#B06FFF", particle: "#7B2FBE" },
+              "Forge-2": { bg: "linear-gradient(135deg, #001A0D 0%, #003322 50%, #001A0D 100%)", border: "#00FF66", glow: "rgba(0,255,102,0.25)", accent: "#00FF66", particle: "#00FF66" },
+              "Bridge-3": { bg: "linear-gradient(135deg, #001122 0%, #002244 50%, #001122 100%)", border: "#002FA7", glow: "rgba(0,47,167,0.35)", accent: "#4488FF", particle: "#002FA7" },
+              "Signal-Spire": { bg: "linear-gradient(135deg, #1A1A00 0%, #333300 50%, #1A1A00 100%)", border: "#FFCC00", glow: "rgba(255,204,0,0.25)", accent: "#FFCC00", particle: "#FFCC00" },
+              "Risk-Crypt": { bg: "linear-gradient(135deg, #1A0000 0%, #330011 50%, #1A0000 100%)", border: "#FF3B30", glow: "rgba(255,59,48,0.25)", accent: "#FF6655", particle: "#FF3B30" },
+              "Data-Nexus": { bg: "linear-gradient(135deg, #001A1A 0%, #003333 50%, #001A1A 100%)", border: "#00BFFF", glow: "rgba(0,191,255,0.25)", accent: "#00BFFF", particle: "#00BFFF" },
+            };
+            return Object.entries(sectorGroups).map(([sector, bots]) => {
+              const theme = roomThemes[sector] || roomThemes["Data-Nexus"];
+              return (
+                <div key={sector} className="relative overflow-hidden rounded-sm group" style={{ background: theme.bg, border: `1px solid ${theme.border}40`, minHeight: 160, boxShadow: `inset 0 0 40px ${theme.glow}, 0 0 20px ${theme.glow}` }}>
+                  {/* Neon border pulse */}
+                  <div className="absolute inset-0 transition-opacity group-hover:opacity-60 opacity-30" style={{ boxShadow: `inset 0 0 25px ${theme.glow}, inset 0 2px 0 ${theme.border}60, inset 0 -2px 0 ${theme.border}60, inset 2px 0 0 ${theme.border}30, inset -2px 0 0 ${theme.border}30` }}></div>
+                  {/* Holographic grid floor */}
+                  <div className="absolute bottom-0 left-0 right-0 h-12 opacity-15" style={{ background: `repeating-linear-gradient(90deg, ${theme.border}15 0px, transparent 1px, transparent 12px), repeating-linear-gradient(0deg, ${theme.border}15 0px, transparent 1px, transparent 12px)`, transform: 'perspective(200px) rotateX(40deg)', transformOrigin: 'bottom' }}></div>
+                  {/* Floating particles */}
+                  <div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(2px 2px at 15% 25%, ${theme.particle}, transparent), radial-gradient(1px 1px at 65% 45%, ${theme.particle}, transparent), radial-gradient(2px 2px at 35% 75%, ${theme.particle}, transparent), radial-gradient(1px 1px at 80% 15%, ${theme.particle}, transparent), radial-gradient(1px 1px at 50% 55%, ${theme.particle}, transparent)` }}></div>
+                  {/* Portal/nexus glow center */}
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full opacity-10 group-hover:opacity-20 transition-opacity" style={{ background: `radial-gradient(circle, ${theme.accent}40 0%, transparent 70%)` }}></div>
+                  {/* Room content */}
+                  <div className="relative z-10 p-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: theme.accent, boxShadow: `0 0 6px ${theme.accent}` }}></div>
+                        <span className="font-mono text-[10px] tracking-[0.15em] font-medium uppercase" style={{ color: theme.accent }}>{sector}</span>
                       </div>
-                      {/* Status dot */}
-                      <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ backgroundColor: statusColor(bot.status) }}></div>
-                      {/* Energy bar */}
-                      <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#222222] rounded-full overflow-hidden">
-                        <div className="h-full" style={{ width: `${bot.energy}%`, backgroundColor: bot.energy > 50 ? '#00FF66' : bot.energy > 25 ? '#FFCC00' : '#FF3B30' }}></div>
-                      </div>
-                    </button>
-                  ))}
+                      <span className="font-mono text-[10px]" style={{ color: `${theme.accent}80` }}>{bots.length} BOTS</span>
+                    </div>
+                    {/* Bot avatars arranged in room */}
+                    <div className="flex flex-wrap gap-2 justify-center py-2">
+                      {bots.map((bot) => (
+                        <button key={bot.agent_id} onClick={() => setSelectedBot(selectedBot?.agent_id === bot.agent_id ? null : bot)}
+                          className={`relative group/bot transition-all duration-200 ${selectedBot?.agent_id === bot.agent_id ? 'scale-125 z-20' : 'hover:scale-110'}`}
+                          title={`${bot.name} — ${bot.status}`}
+                          data-testid={`bot-${bot.agent_id}`}>
+                          <div className="w-9 h-9 flex items-center justify-center rounded-full transition-all"
+                            style={{
+                              background: `radial-gradient(circle, ${bot.color}35 0%, ${bot.color}08 70%)`,
+                              border: `1.5px solid ${bot.color}70`,
+                              boxShadow: selectedBot?.agent_id === bot.agent_id ? `0 0 12px ${bot.color}, 0 0 24px ${bot.color}40` : `0 0 4px ${bot.color}30`
+                            }}>
+                            <Bot size={14} style={{ color: bot.color, filter: `drop-shadow(0 0 3px ${bot.color})` }} />
+                          </div>
+                          {/* Status glow ring */}
+                          <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-1 rounded-full opacity-60" style={{ backgroundColor: statusColor(bot.status), filter: `blur(2px)` }}></div>
+                          {/* Energy arc */}
+                          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full" style={{ width: `${bot.energy * 0.36}px`, backgroundColor: bot.energy > 50 ? '#00FF66' : bot.energy > 25 ? '#FFCC00' : '#FF3B30', boxShadow: `0 0 4px ${bot.energy > 50 ? '#00FF66' : '#FF3B30'}40` }}></div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              );
+            });
+          })()}
         </div>
 
         {/* Selected Bot Detail + Debate Feed */}
