@@ -895,6 +895,137 @@ async def dashboard_dungeon_overview():
         "recent_scheduler_runs": latest_scheduler,
     }
 
+# ============== SIGNAL ACCURACY TRACKER ==============
+
+async def _snapshot_price(symbol: str) -> float:
+    """Fetch current price for a symbol via Bitget or return 0."""
+    ccxt_sym = _normalize_symbol(symbol)
+    try:
+        ticker = await bgx.fetch_ticker(ccxt_sym, "spot")
+        return ticker.get("last", 0) or 0
+    except Exception:
+        return 0
+
+
+async def record_prediction_with_price(run: dict):
+    """Attach entry price to a scheduler run for later accuracy check."""
+    price = await _snapshot_price(run["symbol"])
+    if price <= 0:
+        return
+    await db.signal_accuracy.insert_one({
+        "symbol": run["symbol"],
+        "direction": run["direction"],
+        "confidence": run["confidence"],
+        "entry_price": price,
+        "exit_price": None,
+        "pnl_pct": None,
+        "correct": None,
+        "checked": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+
+async def check_pending_signals():
+    """Check signals older than 15 min and record exit price + accuracy."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+    pending = await db.signal_accuracy.find(
+        {"checked": False, "created_at": {"$lt": cutoff}}
+    ).to_list(100)
+
+    for sig in pending:
+        exit_price = await _snapshot_price(sig["symbol"])
+        if exit_price <= 0:
+            continue
+        entry = sig["entry_price"]
+        direction = sig["direction"]
+
+        if direction == "long_bias":
+            pnl_pct = round((exit_price - entry) / entry * 100, 4)
+            correct = exit_price > entry
+        elif direction == "short_bias":
+            pnl_pct = round((entry - exit_price) / entry * 100, 4)
+            correct = exit_price < entry
+        else:
+            pnl_pct = 0.0
+            correct = None
+
+        await db.signal_accuracy.update_one(
+            {"_id": sig["_id"]},
+            {"$set": {"exit_price": exit_price, "pnl_pct": pnl_pct, "correct": correct, "checked": True}}
+        )
+
+
+@api_router.get("/signals/accuracy")
+async def get_signal_accuracy(limit: int = 100):
+    """Return signal accuracy history and aggregate stats."""
+    await check_pending_signals()
+
+    signals = await db.signal_accuracy.find(
+        {"checked": True}, {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+
+    total = len(signals)
+    correct_count = sum(1 for s in signals if s.get("correct") is True)
+    win_rate = round(correct_count / total * 100, 1) if total > 0 else 0
+    avg_pnl = round(sum(s.get("pnl_pct", 0) for s in signals) / total, 3) if total > 0 else 0
+    total_pnl = round(sum(s.get("pnl_pct", 0) for s in signals), 3)
+
+    # Per-symbol breakdown
+    by_symbol = {}
+    for s in signals:
+        sym = s["symbol"]
+        if sym not in by_symbol:
+            by_symbol[sym] = {"total": 0, "correct": 0, "pnl": 0}
+        by_symbol[sym]["total"] += 1
+        if s.get("correct"):
+            by_symbol[sym]["correct"] += 1
+        by_symbol[sym]["pnl"] += s.get("pnl_pct", 0)
+
+    symbol_stats = [
+        {"symbol": k, "total": v["total"], "correct": v["correct"],
+         "win_rate": round(v["correct"] / v["total"] * 100, 1) if v["total"] else 0,
+         "total_pnl": round(v["pnl"], 3)}
+        for k, v in by_symbol.items()
+    ]
+
+    # Per-direction breakdown
+    by_direction = {}
+    for s in signals:
+        d = s["direction"]
+        if d not in by_direction:
+            by_direction[d] = {"total": 0, "correct": 0, "pnl": 0}
+        by_direction[d]["total"] += 1
+        if s.get("correct"):
+            by_direction[d]["correct"] += 1
+        by_direction[d]["pnl"] += s.get("pnl_pct", 0)
+
+    direction_stats = [
+        {"direction": k, "total": v["total"], "correct": v["correct"],
+         "win_rate": round(v["correct"] / v["total"] * 100, 1) if v["total"] else 0,
+         "total_pnl": round(v["pnl"], 3)}
+        for k, v in by_direction.items()
+    ]
+
+    pending_count = await db.signal_accuracy.count_documents({"checked": False})
+
+    return {
+        "total_signals": total,
+        "correct": correct_count,
+        "win_rate": win_rate,
+        "avg_pnl_pct": avg_pnl,
+        "total_pnl_pct": total_pnl,
+        "pending": pending_count,
+        "by_symbol": symbol_stats,
+        "by_direction": direction_stats,
+        "signals": signals,
+    }
+
+
+@api_router.get("/signals/pending")
+async def get_pending_signals():
+    pending = await db.signal_accuracy.find({"checked": False}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"pending": pending}
+
 # ============== HEALTH ==============
 
 @api_router.get("/")
@@ -1361,6 +1492,9 @@ async def _process_scheduled_symbol(sym: str, config: dict):
         "timestamp": result["timestamp"], "created_at": datetime.now(timezone.utc)
     })
 
+    # Record prediction with entry price for accuracy tracking
+    await record_prediction_with_price(result)
+
     users_tg = await _get_telegram_users()
     await _broadcast_to_telegram(users_tg, _format_prediction_telegram(sym, result))
 
@@ -1570,6 +1704,8 @@ async def startup():
     # Index for scheduler runs
     await db.scheduler_runs.create_index("created_at")
     await db.auto_exec_trades.create_index("created_at")
+    await db.signal_accuracy.create_index("created_at")
+    await db.signal_accuracy.create_index("checked")
 
     os.makedirs("/app/memory", exist_ok=True)
     with open("/app/memory/test_credentials.md", "w") as f:
