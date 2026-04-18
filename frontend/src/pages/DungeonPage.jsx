@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, RefreshCw, Settings, Terminal, Zap } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -40,7 +41,7 @@ function DungeonPage() {
       setDungeonAgents(a.data.agents); setRollout(r.data);
       setAutoExec(ae.data); setEditAutoExec(ae.data);
       setAutoTrades(at.data.trades);
-    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
+    } catch (e) { logError('Request failed', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 8000); return () => clearInterval(i); }, [fetchAll]);
@@ -61,7 +62,7 @@ function DungeonPage() {
       }
       fetchAll();
     } catch (e) {
-      console.error('Request error:', e); toast.error("Prediction failed"); }
+      logError('Request error', e); toast.error("Prediction failed"); }
     finally { setPredLoading(false); }
   };
 
@@ -71,7 +72,7 @@ function DungeonPage() {
       setAutoExec(data); setEditAutoExec(data);
       toast.success(data.enabled ? "Auto-execution ENABLED" : "Auto-execution DISABLED");
     } catch (e) {
-      console.error('Request error:', e); toast.error("Failed"); }
+      logError('Request error', e); toast.error("Failed"); }
   };
 
   const saveAutoExec = async () => {
@@ -80,12 +81,12 @@ function DungeonPage() {
       setAutoExec(data); setEditAutoExec(data); setEditingAE(false);
       toast.success("Auto-exec config updated");
     } catch (e) {
-      console.error('Request error:', e); toast.error("Failed"); }
+      logError('Request error', e); toast.error("Failed"); }
   };
 
   const promoteRollout = async () => {
     try { const { data } = await axios.post(`${API}/api/dungeon/rollout/promote`, {}, { withCredentials: true }); if (data.promoted) toast.success("Stage promoted!"); else toast.warning(data.reason); fetchAll(); }
-    catch (e) { console.error(e); toast.error("Promote failed"); }
+    catch (e) { logError('error', e); toast.error("Promote failed"); }
   };
 
   // Group agents by sector for the dungeon view
@@ -233,7 +234,7 @@ function DungeonPage() {
                 const { data } = await axios.patch(`${API}/api/dungeon/auto-exec/config`, { scheduler_enabled: v }, { withCredentials: true });
                 setAutoExec(data); toast.success(v ? "Scheduler started" : "Scheduler stopped");
               } catch (e) {
-      console.error('Request error:', e); toast.error("Failed"); }
+      logError('Request error', e); toast.error("Failed"); }
             }} data-testid="scheduler-toggle" />
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -17,6 +17,25 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
   - Telegram alerts include intelligence adjustments
 
 ## CHANGELOG
+### Feb 2026 — Code Review Round 4 (iteration_13)
+**Genuine issues fixed**:
+- Ruff E712: replaced `== True` / `== False` with `is True` / `is False` in 2 test files (test_iteration11_refactor.py, test_iteration12_services_refactor.py)
+- Hardcoded test credentials: 4 test files now read from env vars (`TEST_ADMIN_EMAIL` / `TEST_ADMIN_PASSWORD`) with local-dev defaults — overridable at runtime
+- 35 `console.error` calls across frontend replaced with `logError(context, error)` helper that is silent in production and logs only when `NODE_ENV === 'development'`
+
+**Verified false positives (per actual lint tools)**:
+- ❌ "Circular import" — pattern is correct; server.py imports services lazily inside startup/endpoints to avoid load-time cycles. All tests pass, backend starts cleanly.
+- ❌ "Undefined `_exchange_spot` / `_exchange_futures`" — both are declared at module level as `None` and used correctly within `if ... is None:` guards (verified).
+- ❌ "Undefined `status` at payments.py:77" — `status` is assigned in the try block; both except paths raise HTTPException before reaching line 77. Guaranteed-defined.
+- ❌ "39 missing hook deps" — ESLint with `react-hooks/exhaustive-deps: warn` reports **0 warnings** across all 14 frontend files.
+- ❌ "12 `is` vs `==` violations" — all 12 instances are valid idioms (`is None`, `is not None`, `is True` for explicit boolean identity check against MongoDB `True`/`None` tri-state).
+
+**Not applied (style suggestions, not bugs)**:
+- High complexity function refactor: Complexity metrics ≠ bugs. Functions are readable, tested, and have early returns. Deferred.
+- Inline-object chart props: 22 instances. Recharts memoizes internally; measurable impact is negligible. Deferred.
+
+Lint: both ruff and ESLint show **0 issues** after fixes.
+
 ### Feb 2026 — P3 Services Layer (iteration_12)
 **Backend: `server.py` 1167 → 767 lines (total -59% from original 1880)**
 

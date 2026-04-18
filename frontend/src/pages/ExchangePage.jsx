@@ -15,6 +15,7 @@ import {
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
 import { formatApiErrorDetail } from "@/lib/utils";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -36,7 +37,7 @@ function ExchangePage() {
   const { lastMessage } = useWs();
 
   const fetchStatus = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/status`, { withCredentials: true }); setExchangeStatus(data); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/status`, { withCredentials: true }); setExchangeStatus(data); } catch (e) { logError('Request failed', e); }
   }, []);
 
   const fetchTickers = useCallback(async () => {
@@ -44,27 +45,27 @@ function ExchangePage() {
       const symbols = marketType === "spot" ? "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT" : "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT";
       const { data } = await axios.get(`${API}/api/exchange/tickers?symbols=${symbols}&market_type=${marketType}`, { withCredentials: true });
       setTickers(data.tickers.filter(t => !t.error));
-    } catch (e) { console.error('Request failed:', e); }
+    } catch (e) { logError('Request failed', e); }
   }, [marketType]);
 
   const fetchBalance = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/balance?market_type=${marketType}`, { withCredentials: true }); setBalance(data); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/balance?market_type=${marketType}`, { withCredentials: true }); setBalance(data); } catch (e) { logError('Request failed', e); }
   }, [marketType]);
 
   const fetchPositions = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/positions`, { withCredentials: true }); setPositions(data.positions); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/positions`, { withCredentials: true }); setPositions(data.positions); } catch (e) { logError('Request failed', e); }
   }, []);
 
   const fetchOpenOrders = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/open-orders?market_type=${marketType}`, { withCredentials: true }); setOpenOrders(data.orders); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/open-orders?market_type=${marketType}`, { withCredentials: true }); setOpenOrders(data.orders); } catch (e) { logError('Request failed', e); }
   }, [marketType]);
 
   const fetchOrderHistory = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/order-history?market_type=${marketType}&limit=20`, { withCredentials: true }); setOrderHistory(data.orders); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/order-history?market_type=${marketType}&limit=20`, { withCredentials: true }); setOrderHistory(data.orders); } catch (e) { logError('Request failed', e); }
   }, [marketType]);
 
   const fetchChart = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/api/exchange/ohlcv/${encodeURIComponent(selectedSymbol)}?timeframe=1h&limit=48&market_type=${marketType}`, { withCredentials: true }); setOhlcv(data.candles); } catch (e) { console.error('Request failed:', e); }
+    try { const { data } = await axios.get(`${API}/api/exchange/ohlcv/${encodeURIComponent(selectedSymbol)}?timeframe=1h&limit=48&market_type=${marketType}`, { withCredentials: true }); setOhlcv(data.candles); } catch (e) { logError('Request failed', e); }
   }, [selectedSymbol, marketType]);
 
   useEffect(() => {

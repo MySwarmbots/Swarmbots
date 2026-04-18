@@ -10,8 +10,8 @@ import os
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
 # Test credentials
-ADMIN_EMAIL = "admin@mirofish.io"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@mirofish.io")
+ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
 
 
 @pytest.fixture(scope="module")
@@ -399,7 +399,7 @@ class TestSchedulerBackgroundTask:
         response = requests.get(f"{BASE_URL}/api/dungeon/scheduler/status")
         assert response.status_code == 200
         data = response.json()
-        assert data["scheduler_enabled"] == True
+        assert data["scheduler_enabled"] is True
         assert data["interval_minutes"] == 5
         assert len(data["symbols"]) == 6
         print(f"✓ Scheduler: enabled={data['scheduler_enabled']}, interval={data['interval_minutes']}min, symbols={data['symbols']}")

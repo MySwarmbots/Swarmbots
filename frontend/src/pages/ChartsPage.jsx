@@ -11,6 +11,7 @@ import {
 import { BarChart3 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CHART_COLORS } from "@/lib/chart";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -25,17 +26,17 @@ function ChartsPage() {
   // Define callbacks BEFORE useEffect that depends on them
   const fetchPortfolio = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/agents/portfolio/summary`, { withCredentials: true }); setPortfolio(data); }
-    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
+    catch (e) { logError('Load error', e); } finally { setLoading(false); }
   }, []);
 
   const fetchAgents = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); if (!selectedAgent && data.agents.length) setSelectedAgent(data.agents[0].id); }
-    catch (e) { console.error('Fetch agents error:', e); }
+    catch (e) { logError('Fetch agents error', e); }
   }, [selectedAgent]);
 
   const fetchAgentPerf = useCallback(async (id) => {
     try { const { data } = await axios.get(`${API}/api/agents/${id}/performance`, { withCredentials: true }); setAgentPerf(data); }
-    catch (e) { console.error('Fetch perf error:', e); setAgentPerf(null); }
+    catch (e) { logError('Fetch perf error', e); setAgentPerf(null); }
   }, []);
 
   useEffect(() => {

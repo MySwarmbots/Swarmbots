@@ -10,6 +10,7 @@ import { RefreshCw, Settings } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
 import { formatCurrency } from "@/lib/utils";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -39,7 +40,7 @@ function EnginePage() {
       setSwarm(s.data); setConfig(c.data); setEditConfig(c.data);
       setPredictions(p.data.predictions); setEnginePositions(pos.data.positions);
       setTrades(t.data.trades); setPnl(pnlRes.data.realized_pnl_usd);
-    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
+    } catch (e) { logError('Request failed', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 10000); return () => clearInterval(i); }, [fetchAll]);

@@ -11,8 +11,8 @@ import time
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
 # Test credentials
-ADMIN_EMAIL = "admin@mirofish.io"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@mirofish.io")
+ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
 
 
 @pytest.fixture(scope="module")
@@ -174,11 +174,11 @@ class TestAutoExecConfig:
         })
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        assert data.get("enabled") == False, "enabled should be False after patch"
+        assert data.get("enabled") is False, "enabled should be False after patch"
         
         # Verify persistence by re-fetching
         verify_resp = auth_session.get(f"{BASE_URL}/api/dungeon/auto-exec/config")
-        assert verify_resp.json().get("enabled") == False, "enabled should persist as False"
+        assert verify_resp.json().get("enabled") is False, "enabled should persist as False"
         
         print("✓ Auto-exec config PATCH persists enabled=false")
 

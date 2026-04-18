@@ -25,3 +25,15 @@ export function formatNumber(num, decimals = 2) {
 export function formatPercent(num) {
   return `${num >= 0 ? '+' : ''}${num.toFixed(1)}%`;
 }
+
+/**
+ * Dev-only error logger. Silent in production to avoid leaking stack traces
+ * and to keep the console clean for end users. Use for every `catch` block
+ * where we don't surface the error to UI.
+ */
+export function logError(context, error) {
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.error(`[${context}]`, error);
+  }
+}

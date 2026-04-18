@@ -9,6 +9,7 @@ import {
 import { CheckCircle, XCircle, RefreshCw, Zap, TrendingUp } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -26,7 +27,7 @@ function SignalsPage() {
         axios.get(`${API}/api/signals/intelligence`, { withCredentials: true }),
       ]);
       setData(acc.data); setIntel(intl.data.intelligence || []);
-    } catch (e) { console.error('Signals fetch error:', e); }
+    } catch (e) { logError('Signals fetch error', e); }
     finally { setLoading(false); }
   }, []);
 

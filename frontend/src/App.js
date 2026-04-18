@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import axios from "axios";
-import { formatApiErrorDetail, formatCurrency, formatNumber } from "@/lib/utils";
+import { formatApiErrorDetail, formatCurrency, formatNumber, logError } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -49,7 +49,7 @@ function DashboardPage() {
         axios.get(`${API}/api/dashboard/dungeon-overview`, { withCredentials: true }),
       ]);
       setStats(s.data); setDungeon(d.data);
-    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
+    } catch (e) { logError('Request failed', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -224,7 +224,7 @@ function AgentsPage() {
 
   const fetchAgents = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); }
-    catch (e) { console.error(e); toast.error("Failed to load agents"); } finally { setLoading(false); }
+    catch (e) { logError('error', e); toast.error("Failed to load agents"); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
@@ -246,8 +246,8 @@ function AgentsPage() {
     } catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail)); }
   };
 
-  const toggleAgent = async (id) => { try { await axios.patch(`${API}/api/agents/${id}/toggle`, {}, { withCredentials: true }); fetchAgents(); } catch (e) { console.error(e); toast.error("Failed"); } };
-  const deleteAgent = async (id) => { try { await axios.delete(`${API}/api/agents/${id}`, { withCredentials: true }); toast.success("Deleted"); fetchAgents(); } catch (e) { console.error(e); toast.error("Failed"); } };
+  const toggleAgent = async (id) => { try { await axios.patch(`${API}/api/agents/${id}/toggle`, {}, { withCredentials: true }); fetchAgents(); } catch (e) { logError('error', e); toast.error("Failed"); } };
+  const deleteAgent = async (id) => { try { await axios.delete(`${API}/api/agents/${id}`, { withCredentials: true }); toast.success("Deleted"); fetchAgents(); } catch (e) { logError('error', e); toast.error("Failed"); } };
 
   return (
     <DashboardLayout>
@@ -325,7 +325,7 @@ function ValidationPage() {
     try {
       const [r, g] = await Promise.all([axios.get(`${API}/api/validation/runs`, { withCredentials: true }), axios.get(`${API}/api/validation/gate`, { withCredentials: true })]);
       setRuns(r.data.runs); setGate(g.data);
-    } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); }
+    } catch (e) { logError('Request failed', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); const i = setInterval(fetchData, 30000); return () => clearInterval(i); }, [fetchData]);
@@ -343,7 +343,7 @@ function ValidationPage() {
   }, [lastMessage]);
   const updateGate = async (mode, blocked) => {
     try { await axios.post(`${API}/api/validation/gate`, { mode, blocked, reason: "" }, { withCredentials: true }); toast.success("Gate updated"); fetchData(); }
-    catch (e) { console.error(e); toast.error("Failed"); }
+    catch (e) { logError('error', e); toast.error("Failed"); }
   };
 
   return (
@@ -447,7 +447,7 @@ function NotificationsPage() {
 
   const fetchNotifications = useCallback(async () => {
     try { const { data } = await axios.get(`${API}/api/notifications`, { withCredentials: true }); setNotifications(data.notifications); }
-    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
+    catch (e) { logError('Load error', e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
@@ -458,8 +458,8 @@ function NotificationsPage() {
       setNotifications((prev) => [lastMessage.data, ...prev]);
     }
   }, [lastMessage]);
-  const markRead = async (id) => { try { await axios.patch(`${API}/api/notifications/${id}/read`, {}, { withCredentials: true }); fetchNotifications(); } catch (e) { console.error('Request failed:', e); } };
-  const markAllRead = async () => { try { await axios.post(`${API}/api/notifications/mark-all-read`, {}, { withCredentials: true }); toast.success("All read"); fetchNotifications(); } catch (e) { console.error('Request failed:', e); } };
+  const markRead = async (id) => { try { await axios.patch(`${API}/api/notifications/${id}/read`, {}, { withCredentials: true }); fetchNotifications(); } catch (e) { logError('Request failed', e); } };
+  const markAllRead = async () => { try { await axios.post(`${API}/api/notifications/mark-all-read`, {}, { withCredentials: true }); toast.success("All read"); fetchNotifications(); } catch (e) { logError('Request failed', e); } };
 
   const getIcon = (t) => {
     switch (t) { case 'success': return <CheckCircle size={16} className="text-[#00FF66]" />; case 'error': return <XCircle size={16} className="text-[#FF3B30]" />; case 'warning': return <AlertTriangle size={16} className="text-[#FFCC00]" />; default: return <Bell size={16} className="text-[#8A8A8A]" />; }
@@ -500,7 +500,7 @@ function BillingPage() {
   const [plans, setPlans] = useState({}); const [loading, setLoading] = useState(true); const [checkoutLoading, setCheckoutLoading] = useState(null);
 
   useEffect(() => { fetchPlans(); }, []);
-  const fetchPlans = async () => { try { const { data } = await axios.get(`${API}/api/payments/plans`, { withCredentials: true }); setPlans(data.plans); } catch (e) { console.error('Request failed:', e); } finally { setLoading(false); } };
+  const fetchPlans = async () => { try { const { data } = await axios.get(`${API}/api/payments/plans`, { withCredentials: true }); setPlans(data.plans); } catch (e) { logError('Request failed', e); } finally { setLoading(false); } };
 
   const handleCheckout = async (planId) => {
     setCheckoutLoading(planId);
@@ -541,7 +541,7 @@ function SettingsPage() {
   useEffect(() => { fetchProfile(); }, []);
   const fetchProfile = async () => {
     try { const { data } = await axios.get(`${API}/api/profile`, { withCredentials: true }); setProfile(data); setChatId(data.telegram_chat_id || ""); }
-    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
+    catch (e) { logError('Load error', e); } finally { setLoading(false); }
   };
 
   const linkTelegram = async () => {
@@ -554,7 +554,7 @@ function SettingsPage() {
 
   const unlinkTelegram = async () => {
     try { await axios.post(`${API}/api/telegram/unlink`, {}, { withCredentials: true }); toast.success("Telegram unlinked"); setChatId(""); fetchProfile(); }
-    catch (e) { console.error(e); toast.error("Failed"); }
+    catch (e) { logError('error', e); toast.error("Failed"); }
   };
 
   const testTelegram = async () => {
@@ -564,7 +564,7 @@ function SettingsPage() {
 
   const updatePrefs = async (field, value) => {
     try { await axios.patch(`${API}/api/profile`, { [field]: value }, { withCredentials: true }); fetchProfile(); }
-    catch (e) { console.error(e); toast.error("Failed to update"); }
+    catch (e) { logError('error', e); toast.error("Failed to update"); }
   };
 
   if (loading) return <DashboardLayout><div className="font-mono text-sm text-[#8A8A8A]">LOADING<span className="cursor-blink"></span></div></DashboardLayout>;
@@ -657,7 +657,7 @@ function PaymentSuccessPage() {
       else if (data.status === "expired") setStatus("expired");
       else setTimeout(() => poll(a + 1), 2000);
     } catch (e) {
-      console.error('Request error:', e); setStatus("error"); }
+      logError('Request error', e); setStatus("error"); }
   }, [sessionId]);
   useEffect(() => { if (sessionId) poll(); }, [sessionId, poll]);
   return (

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWs } from "@/contexts/WsContext";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -24,7 +25,7 @@ export function DashboardLayout({ children }) {
       try {
         const { data } = await axios.get(`${API}/api/notifications/unread-count`, { withCredentials: true });
         setUnread(data.count);
-      } catch (e) { console.error('Request failed:', e); }
+      } catch (e) { logError('Request failed', e); }
     };
     fetchUnread();
     const interval = setInterval(fetchUnread, 30000); // Slower polling since WS handles real-time

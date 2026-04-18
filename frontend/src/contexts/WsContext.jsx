@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, useCallback, us
 import axios from "axios";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -46,7 +47,7 @@ export function WsProvider({ children }) {
             const toastFn = n.type === "error" ? toast.error : n.type === "success" ? toast.success : n.type === "warning" ? toast.warning : toast.info;
             toastFn(n.title, { description: n.message });
           }
-        } catch (e) { console.error('Request failed:', e); }
+        } catch (e) { logError('Request failed', e); }
       };
 
       ws.onclose = () => {
@@ -61,7 +62,7 @@ export function WsProvider({ children }) {
       ws.onerror = () => { ws.close(); };
       wsRef.current = ws;
     } catch (e) {
-      console.error('Request error:', e);
+      logError('Request error', e);
       // Token fetch failed, retry in 5s
       reconnectTimeout.current = setTimeout(connect, 5000);
     }

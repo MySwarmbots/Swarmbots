@@ -9,8 +9,8 @@ import os
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://mirofish-mobile.preview.emergentagent.com')
 
 # Test credentials
-ADMIN_EMAIL = "admin@mirofish.io"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@mirofish.io")
+ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
 
 
 class TestHealthAndPublicEndpoints:
