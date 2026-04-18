@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, createContext, useContext } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -100,8 +100,10 @@ function WsProvider({ children }) {
     };
   }, [connect]);
 
+  const wsValue = useMemo(() => ({ lastMessage, wsConnected }), [lastMessage, wsConnected]);
+
   return (
-    <WsContext.Provider value={{ lastMessage, wsConnected }}>
+    <WsContext.Provider value={wsValue}>
       {children}
     </WsContext.Provider>
   );
@@ -714,35 +716,38 @@ function ChartsPage() {
   const [selectedAgent, setSelectedAgent] = useState(searchParams.get("agent") || "");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchPortfolio();
-    fetchAgents();
+  // Define callbacks BEFORE useEffect that depends on them
+  const fetchPortfolio = useCallback(async () => {
+    try { const { data } = await axios.get(`${API}/api/agents/portfolio/summary`, { withCredentials: true }); setPortfolio(data); }
+    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
+  }, []);
+
+  const fetchAgents = useCallback(async () => {
+    try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); if (!selectedAgent && data.agents.length) setSelectedAgent(data.agents[0].id); }
+    catch (e) { console.error('Fetch agents error:', e); }
+  }, [selectedAgent]);
+
+  const fetchAgentPerf = useCallback(async (id) => {
+    try { const { data } = await axios.get(`${API}/api/agents/${id}/performance`, { withCredentials: true }); setAgentPerf(data); }
+    catch (e) { console.error('Fetch perf error:', e); setAgentPerf(null); }
   }, []);
 
   useEffect(() => {
-    if (selectedAgent) fetchAgentPerf(selectedAgent);
-  }, [selectedAgent]);
+    fetchPortfolio();
+    fetchAgents();
+  }, [fetchPortfolio, fetchAgents]);
 
-  const fetchPortfolio = async () => {
-    try { const { data } = await axios.get(`${API}/api/agents/portfolio/summary`, { withCredentials: true }); setPortfolio(data); }
-    catch (e) { console.error('Load error:', e); } finally { setLoading(false); }
-  };
-  const fetchAgents = async () => {
-    try { const { data } = await axios.get(`${API}/api/agents`, { withCredentials: true }); setAgents(data.agents); if (!selectedAgent && data.agents.length) setSelectedAgent(data.agents[0].id); }
-    catch (e) { console.error('Fetch agents error:', e); }
-  };
-  const fetchAgentPerf = async (id) => {
-    try { const { data } = await axios.get(`${API}/api/agents/${id}/performance`, { withCredentials: true }); setAgentPerf(data); }
-    catch (e) { console.error('Fetch perf error:', e); setAgentPerf(null); }
-  };
+  useEffect(() => {
+    if (selectedAgent) fetchAgentPerf(selectedAgent);
+  }, [selectedAgent, fetchAgentPerf]);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (
       <div className="bg-[#111111] border border-[#333333] p-2">
         <p className="font-mono text-[10px] text-[#8A8A8A]">{label}</p>
-        {payload.map((p, i) => (
-          <p key={i} className="font-mono text-xs" style={{ color: p.color }}>{p.name}: {typeof p.value === 'number' ? p.value.toFixed(2) : p.value}</p>
+        {payload.map((p) => (
+          <p key={p.dataKey || p.name} className="font-mono text-xs" style={{ color: p.color }}>{p.name}: {typeof p.value === 'number' ? p.value.toFixed(2) : p.value}</p>
         ))}
       </div>
     );
@@ -787,8 +792,8 @@ function ChartsPage() {
                     <YAxis tick={{ fontSize: 9, fill: '#555555', fontFamily: 'IBM Plex Mono' }} />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey="daily_pnl" name="Daily PnL" fill="#00FF66">
-                      {(portfolio?.portfolio_history || []).map((entry, i) => (
-                        <Cell key={i} fill={entry.daily_pnl >= 0 ? "#00FF66" : "#FF3B30"} />
+                      {(portfolio?.portfolio_history || []).map((entry) => (
+                        <Cell key={`pnl-${entry.date}`} fill={entry.daily_pnl >= 0 ? "#00FF66" : "#FF3B30"} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -821,7 +826,7 @@ function ChartsPage() {
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fill: '#8A8A8A', fontFamily: 'IBM Plex Mono' }} width={100} />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey="pnl" name="PnL" fill="#002FA7">
-                      {(portfolio?.by_strategy || []).map((e, i) => (<Cell key={i} fill={e.pnl >= 0 ? "#00FF66" : "#FF3B30"} />))}
+                      {(portfolio?.by_strategy || []).map((e) => (<Cell key={`strat-${e.name}`} fill={e.pnl >= 0 ? "#00FF66" : "#FF3B30"} />))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -831,7 +836,7 @@ function ChartsPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
                     <Pie data={portfolio?.by_exchange || []} dataKey="pnl" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, value }) => `${name}: $${value}`}>
-                      {(portfolio?.by_exchange || []).map((_, i) => (<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />))}
+                      {(portfolio?.by_exchange || []).map((e, i) => (<Cell key={`exch-${e.name}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />))}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
                   </PieChart>
@@ -1238,8 +1243,7 @@ function SettingsPage() {
 // ============== PAYMENT SUCCESS/CANCEL ==============
 function PaymentSuccessPage() {
   const [searchParams] = useSearchParams(); const [status, setStatus] = useState("checking"); const sessionId = searchParams.get("session_id");
-  useEffect(() => { if (sessionId) poll(); }, [sessionId]);
-  const poll = async (a = 0) => {
+  const poll = useCallback(async (a = 0) => {
     if (a >= 5) { setStatus("timeout"); return; }
     try {
       const { data } = await axios.get(`${API}/api/payments/status/${sessionId}`, { withCredentials: true });
@@ -1248,7 +1252,8 @@ function PaymentSuccessPage() {
       else setTimeout(() => poll(a + 1), 2000);
     } catch (e) {
       console.error('Request error:', e); setStatus("error"); }
-  };
+  }, [sessionId]);
+  useEffect(() => { if (sessionId) poll(); }, [sessionId, poll]);
   return (
     <DashboardLayout>
       <Card className="bg-[#111111] border-[#222222] p-8 rounded-none text-center max-w-md mx-auto">
@@ -1766,7 +1771,7 @@ function DungeonPage() {
                 </tr></thead>
                 <tbody>
                   {autoTrades.map((t, i) => (
-                    <tr key={i} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`auto-trade-${i}`}>
+                    <tr key={t.id || `${t.symbol}-${t.created_at}-${i}`} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`auto-trade-${i}`}>
                       <td className="font-mono text-[10px] text-[#8A8A8A] p-2">{t.created_at ? new Date(t.created_at).toLocaleTimeString() : '-'}</td>
                       <td className="font-mono text-xs text-white p-2">{t.symbol}</td>
                       <td className={`font-mono text-xs p-2 font-medium ${t.side === 'buy' ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{t.side?.toUpperCase()}</td>
@@ -2074,7 +2079,7 @@ function EnginePage() {
                 </tr></thead>
                 <tbody>
                   {predictions.slice(0, 20).map((p, i) => (
-                    <tr key={i} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`prediction-${i}`}>
+                    <tr key={p.id || `${p.symbol}-${p.created_at || p.timestamp || i}`} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`prediction-${i}`}>
                       <td className="font-mono text-xs text-white p-2">{p.symbol}</td>
                       <td className={`font-mono text-xs p-2 font-medium ${p.selected_action === 'buy' ? 'text-[#00FF66]' : p.selected_action === 'sell' ? 'text-[#FF3B30]' : 'text-[#8A8A8A]'}`}>{p.selected_action?.toUpperCase()}</td>
                       <td className="font-mono text-xs text-white p-2 tabular-nums">{(p.confidence * 100).toFixed(1)}%</td>
@@ -2102,8 +2107,8 @@ function EnginePage() {
                   {["SYMBOL", "SIDE", "QTY", "ENTRY", "NOTIONAL"].map(h => (<th key={h} className="font-mono text-[10px] text-[#555555] text-left p-2">{h}</th>))}
                 </tr></thead>
                 <tbody>
-                  {enginePositions.map((p, i) => (
-                    <tr key={i} className="border-t border-[#1A1A1A]">
+                  {enginePositions.map((p) => (
+                    <tr key={`${p.symbol}-${p.side}-${p.entry_price}`} className="border-t border-[#1A1A1A]">
                       <td className="font-mono text-xs text-white p-2">{p.symbol}</td>
                       <td className={`font-mono text-xs p-2 ${p.side === 'long' ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{p.side?.toUpperCase()}</td>
                       <td className="font-mono text-xs text-white p-2 tabular-nums">{p.quantity}</td>
@@ -2128,7 +2133,7 @@ function EnginePage() {
                   </tr></thead>
                   <tbody>
                     {trades.slice(0, 20).map((t, i) => (
-                      <tr key={i} className="border-t border-[#1A1A1A]">
+                      <tr key={t.id || `${t.symbol}-${t.created_at || i}`} className="border-t border-[#1A1A1A]">
                         <td className="font-mono text-xs text-white p-2">{t.symbol}</td>
                         <td className={`font-mono text-xs p-2 ${t.side === 'buy' ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{t.side?.toUpperCase()}</td>
                         <td className="font-mono text-xs text-white p-2 tabular-nums">${t.price}</td>
@@ -2407,7 +2412,7 @@ function ExchangePage() {
                     </tr></thead>
                     <tbody>
                       {positions.map((p, i) => (
-                        <tr key={i} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`position-${i}`}>
+                        <tr key={`${p.symbol}-${p.side}-${i}`} className="border-t border-[#1A1A1A] hover:bg-[#151515]" data-testid={`position-${i}`}>
                           <td className="font-mono text-xs text-white p-3">{p.symbol}</td>
                           <td className={`font-mono text-xs p-3 ${p.side === 'long' ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{p.side?.toUpperCase()}</td>
                           <td className="font-mono text-xs text-white p-3 tabular-nums">{p.contracts}</td>

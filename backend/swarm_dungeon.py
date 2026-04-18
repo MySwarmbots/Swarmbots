@@ -6,7 +6,6 @@ MiroFish Space Dungeon Swarm System
 - Rollout stage management (shadow -> canary -> phase1 -> phase2 -> full)
 """
 import secrets
-import random
 from datetime import datetime, timezone
 from typing import Optional
 from collections import deque
@@ -191,7 +190,17 @@ def get_agent(agent_id: str):
 
 def _personality_bias(personality: str) -> str:
     w = PERSONALITY_WEIGHTS.get(personality, {"bullish": 0.33, "bearish": 0.33, "neutral": 0.34})
-    return random.choices(list(w.keys()), weights=list(w.values()))[0]
+    # Weighted choice using secrets for cryptographically-sound randomness
+    keys = list(w.keys())
+    weights = list(w.values())
+    total = sum(weights)
+    r = secrets.randbelow(10_000_000) / 10_000_000 * total
+    cumulative = 0.0
+    for k, wt in zip(keys, weights):
+        cumulative += wt
+        if r <= cumulative:
+            return k
+    return keys[-1]
 
 
 def _generate_rationale(agent, symbol, timeframe, bias):
@@ -201,9 +210,20 @@ def _generate_rationale(agent, symbol, timeframe, bias):
     return template.format(sym=symbol, tf=timeframe, bias=bias, risk_note=risk_note)
 
 
+def _sec_sample(items, k):
+    """Cryptographically-secure sample without replacement."""
+    pool = list(items)
+    k = min(k, len(pool))
+    result = []
+    for _ in range(k):
+        idx = secrets.randbelow(len(pool))
+        result.append(pool.pop(idx))
+    return result
+
+
 def run_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
     agents = generate_agents()
-    debaters = random.sample(agents, min(12, len(agents)))
+    debaters = _sec_sample(agents, min(12, len(agents)))
     stances = []
 
     for agent in debaters:
