@@ -1,0 +1,23 @@
+{
+  "name": "mirofish-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MiroFish crypto swarm trading — monorepo root. Holds pre-commit hooks that run lint on staged files across both frontend (ESLint) and backend (ruff).",
+  "scripts": {
+    "prepare": "husky",
+    "lint": "cd frontend && yarn lint && cd ../backend && ruff check .",
+    "lint:fix": "cd frontend && yarn lint:fix && cd ../backend && ruff check . --fix"
+  },
+  "lint-staged": {
+    "frontend/src/**/*.{js,jsx}": [
+      "sh -c 'cd frontend && yarn eslint --max-warnings=0'"
+    ],
+    "backend/**/*.py": [
+      "sh -c 'cd backend && ruff check'"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0"
+  }
+}

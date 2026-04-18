@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# MiroFish pre-commit hook.
+# Runs ESLint on staged frontend files and ruff on staged backend files.
+# Skips hook if no matching files are staged. Fails commit on any error.
+
+cd "$(dirname "$0")/.." || exit 1
+npx lint-staged

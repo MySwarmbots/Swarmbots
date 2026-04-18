@@ -17,6 +17,24 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
   - Telegram alerts include intelligence adjustments
 
 ## CHANGELOG
+### Feb 2026 — Pre-commit Hook Wired (iteration_15)
+**Monorepo root tooling**:
+- `/app/package.json` — husky 9 + lint-staged 15
+- `/app/.husky/pre-commit` — runs `lint-staged` on staged files only (fast, file-scoped)
+- `yarn install` at `/app` wires up `core.hooksPath = .husky/_` automatically
+
+**Hook behavior**:
+- Staged `.js`/`.jsx` files → ESLint with `--max-warnings=0` (zero tolerance)
+- Staged `.py` files → ruff check
+- **Verified blocking**: a file with a missing React hook dep or unused Python import aborts the commit
+- **Verified passing**: a clean file commits instantly
+
+**Convenience scripts** (run from `/app`):
+- `yarn lint` — lint both frontend + backend in one command
+- `yarn lint:fix` — auto-fix both
+
+**Updated README** with full dev setup + architecture map (9 backend routers + 3 services + 9 frontend pages + 2 shared components + 2 contexts).
+
 ### Feb 2026 — Lint Baseline Wired (iteration_14)
 **Backend**: Added `/app/backend/pyproject.toml` with ruff config.
 - Run: `cd /app/backend && ruff check .`
