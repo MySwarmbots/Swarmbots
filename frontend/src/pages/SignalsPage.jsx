@@ -1,13 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-} from "recharts";
-import { CheckCircle, XCircle, RefreshCw, Zap, TrendingUp } from "lucide-react";
-import { DashboardLayout } from "@/components/DashboardLayout";
+
 import { useWs } from "@/contexts/WsContext";
 import { logError } from "@/lib/utils";
 

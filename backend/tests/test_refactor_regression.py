@@ -2,10 +2,10 @@
 Regression tests for MiroFish refactor (iteration 10).
 Tests all endpoints after splitting server.py into routes/ and App.js into pages/.
 """
+import os
+
 import pytest
 import requests
-import os
-import time
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 

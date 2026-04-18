@@ -6,9 +6,8 @@ MiroFish Space Dungeon Swarm System
 - Rollout stage management (shadow -> canary -> phase1 -> phase2 -> full)
 """
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
 from collections import deque
+from datetime import UTC, datetime
 
 # ============== AGENT CONFIG ==============
 
@@ -148,7 +147,7 @@ def _create_agent(i):
             "y": round(_sec_uniform(-3, 3), 2),
             "z": round(_sec_uniform(-8, 8), 2),
         },
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -196,7 +195,7 @@ def _personality_bias(personality: str) -> str:
     total = sum(weights)
     r = secrets.randbelow(10_000_000) / 10_000_000 * total
     cumulative = 0.0
-    for k, wt in zip(keys, weights):
+    for k, wt in zip(keys, weights, strict=False):
         cumulative += wt
         if r <= cumulative:
             return k
@@ -241,7 +240,7 @@ def run_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
 
     debate_log.appendleft({
         "symbol": symbol, "timeframe": timeframe,
-        "stances": stances, "timestamp": datetime.now(timezone.utc).isoformat(),
+        "stances": stances, "timestamp": datetime.now(UTC).isoformat(),
     })
     return stances
 
@@ -290,7 +289,7 @@ def aggregate_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m"):
         "symbol": symbol, "timeframe": timeframe,
         "direction": direction, "confidence": confidence,
         "votes": votes, "debate": debate,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     prediction_log.appendleft(result)
     return result
@@ -312,7 +311,7 @@ def set_rollout_state(**kwargs):
     before = rollout_state.get("stage", "unknown")
     rollout_state.update(kwargs)
     rollout_audit.appendleft({
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "action": "state_update",
         "stage_before": before,
         "stage_after": rollout_state.get("stage", before),

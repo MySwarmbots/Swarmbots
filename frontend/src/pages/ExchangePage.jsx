@@ -1,18 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
-import {
-  AlertTriangle, ArrowDown, ArrowUp, Layers, RefreshCw, Wallet, X,
-} from "lucide-react";
-import { DashboardLayout } from "@/components/DashboardLayout";
+
+
 import { useWs } from "@/contexts/WsContext";
 import { formatApiErrorDetail } from "@/lib/utils";
 import { logError } from "@/lib/utils";
@@ -29,7 +19,6 @@ function ExchangePage() {
   const [orderHistory, setOrderHistory] = useState([]);
   const [ohlcv, setOhlcv] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("market");
   const [marketType, setMarketType] = useState("spot");
   const [selectedSymbol, setSelectedSymbol] = useState("BTC/USDT");
   const [orderForm, setOrderForm] = useState({ side: "buy", type: "market", amount: "", price: "" });
@@ -113,7 +102,7 @@ function ExchangePage() {
     try {
       await axios.post(`${API}/api/exchange/cancel`, { order_id: orderId, symbol, market_type: marketType }, { withCredentials: true });
       toast.success("Order cancelled"); fetchOpenOrders();
-    } catch (err) { toast.error("Cancel failed"); }
+    } catch { toast.error("Cancel failed"); }
   };
 
   const CustomTooltip = ({ active, payload }) => {

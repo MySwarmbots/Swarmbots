@@ -7,9 +7,10 @@ MiroFish Profit-Optimized Engine
 - Cooldown protection
 - Backtest
 """
-from pydantic import BaseModel, Field
-from typing import Literal, Optional
 from collections import deque
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 # ============== MODELS ==============
 
@@ -27,7 +28,7 @@ class SignalSnapshot(BaseModel):
     channel_lower: float
     atr_pct: float = 0.01
     higher_tf_bias: Action = "hold"
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
 class DetectorSignal(BaseModel):
     detector: str
@@ -53,7 +54,7 @@ class TradingViewWebhook(BaseModel):
     price: float
     interval: str = "5m"
     time: str
-    id: Optional[str] = None
+    id: str | None = None
     position_size: float = 100.0
 
 # ============== IN-MEMORY STATE ==============

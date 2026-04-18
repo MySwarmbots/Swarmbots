@@ -33,7 +33,7 @@ export function formatPercent(num) {
  */
 export function logError(context, error) {
   if (process.env.NODE_ENV === 'development') {
-    // eslint-disable-next-line no-console
+     
     console.error(`[${context}]`, error);
   }
 }

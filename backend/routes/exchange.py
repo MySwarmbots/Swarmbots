@@ -2,14 +2,13 @@
 Bitget Exchange HTTP routes: status, tickers, OHLCV, orderbook, balance,
 positions, create/cancel orders, open orders, order history.
 """
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 import bitget_exchange as bgx
-from server import db, ws_manager, get_current_user, notify_user
+from server import db, get_current_user, notify_user, ws_manager
 
 router = APIRouter()
 
@@ -19,7 +18,7 @@ class OrderRequest(BaseModel):
     side: str  # buy/sell
     order_type: str = "market"  # market/limit
     amount: float
-    price: Optional[float] = None
+    price: float | None = None
     market_type: str = "spot"  # spot/futures
 
 
@@ -91,7 +90,7 @@ async def exchange_create_order(data: OrderRequest, request: Request):
         "user_id": user["_id"],
         "order": result,
         "market_type": data.market_type,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(UTC)
     })
     await ws_manager.send_to_user(user["_id"], {"type": "order_filled", "data": result})
     await notify_user(user["_id"], "Order Placed",

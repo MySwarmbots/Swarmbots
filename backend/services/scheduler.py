@@ -10,17 +10,16 @@ for every symbol in the auto-exec config. For each prediction it:
   6. Fires auto-exec on Bitget if enabled
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import swarm_dungeon as sd
-from server import db, ws_manager, logger, send_telegram_message
+from server import db, logger, send_telegram_message, ws_manager
 from services.auto_exec import (
+    _apply_signal_intelligence,
     auto_execute_prediction,
     get_auto_exec_config,
-    _apply_signal_intelligence,
 )
 from services.signal_tracker import record_prediction_with_price
-
 
 DIRECTION_EMOJI = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}
 DIRECTION_TEXT = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}
@@ -78,7 +77,7 @@ async def _process_scheduled_symbol(sym: str, config: dict):
     await db.scheduler_runs.insert_one({
         "symbol": sym, "direction": result["direction"],
         "confidence": result["confidence"], "votes": result["votes"],
-        "timestamp": result["timestamp"], "created_at": datetime.now(timezone.utc)
+        "timestamp": result["timestamp"], "created_at": datetime.now(UTC)
     })
 
     # Record prediction with entry price for accuracy tracking

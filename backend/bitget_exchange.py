@@ -2,17 +2,16 @@
 Bitget Exchange Integration via CCXT
 Supports: Spot + Futures (USDT-perpetual), balance, tickers, orders, positions, OHLCV
 """
-import ccxt
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
+
+import ccxt
 
 logger = logging.getLogger(__name__)
 
-_exchange_spot: Optional[ccxt.bitget] = None
-_exchange_futures: Optional[ccxt.bitget] = None
+_exchange_spot: ccxt.bitget | None = None
+_exchange_futures: ccxt.bitget | None = None
 
 
 def _get_credentials():

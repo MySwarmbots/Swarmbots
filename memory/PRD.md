@@ -17,6 +17,29 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
   - Telegram alerts include intelligence adjustments
 
 ## CHANGELOG
+### Feb 2026 — Lint Baseline Wired (iteration_14)
+**Backend**: Added `/app/backend/pyproject.toml` with ruff config.
+- Run: `cd /app/backend && ruff check .`
+- Catches: pyflakes (F), pycodestyle (E), bugbear (B), isort (I), pyupgrade (UP)
+- Intentionally ignores: `E402` (late-import pattern is architectural), `B904` (FastAPI HTTPException re-raise)
+- Auto-fix: `ruff check . --fix` (removed 118 unused imports in cleanup pass)
+
+**Frontend**: Added `/app/frontend/eslint.config.mjs` + `yarn lint` / `yarn lint:fix` scripts.
+- Installed `eslint-plugin-unused-imports` for auto-removal of dead imports
+- Catches: `react-hooks/exhaustive-deps`, `react/jsx-key`, `react/jsx-uses-vars`, unused imports/vars, `no-debugger`, `no-console` (allows warn/error)
+- Ignores: `node_modules`, `build`, `src/components/ui/**` (shadcn), `src/hooks/use-toast.js` (shadcn)
+
+**Cleanup applied during lint pass**:
+- Removed ~130 unused Python imports across server.py, routes/*.py, services/*.py, tests/*.py
+- Removed ~200 unused JS imports across App.js + pages/* (leftovers from extraction)
+- Removed 7 genuinely-unused local vars (`loading`, `err`, `activeTab`, etc.)
+
+**Lint status**:
+- ruff: **0 errors**
+- ESLint: **0 warnings**
+
+**Developer UX**: You can now run `yarn lint` and `ruff check .` before any commit (or when a code-review report lands) to instantly verify claims.
+
 ### Feb 2026 — Code Review Round 4 (iteration_13)
 **Genuine issues fixed**:
 - Ruff E712: replaced `== True` / `== False` with `is True` / `is False` in 2 test files (test_iteration11_refactor.py, test_iteration12_services_refactor.py)

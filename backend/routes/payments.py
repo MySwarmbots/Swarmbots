@@ -1,14 +1,14 @@
 """Stripe payments routes. Also hosts SUBSCRIPTION_PLANS table."""
 import os
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, HTTPException, Request
+from datetime import UTC, datetime
 
 from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout, CheckoutSessionRequest,
+    CheckoutSessionRequest,
+    StripeCheckout,
 )
+from fastapi import APIRouter, HTTPException, Request
 
-from server import db, logger, get_current_user, notify_user, CreateCheckoutRequest
+from server import CreateCheckoutRequest, db, get_current_user, logger, notify_user
 
 router = APIRouter()
 
@@ -45,7 +45,7 @@ async def create_checkout(data: CreateCheckoutRequest, request: Request):
     await db.payment_transactions.insert_one({
         "session_id": session.session_id, "user_id": user["_id"],
         "plan": data.plan, "amount": plan["amount"], "currency": "usd",
-        "payment_status": "pending", "created_at": datetime.now(timezone.utc)
+        "payment_status": "pending", "created_at": datetime.now(UTC)
     })
     return {"url": session.url, "session_id": session.session_id}
 
@@ -69,7 +69,7 @@ async def get_payment_status(session_id: str, request: Request):
         if existing and existing.get("payment_status") != "completed":
             await db.payment_transactions.update_one(
                 {"session_id": session_id},
-                {"$set": {"payment_status": "completed", "completed_at": datetime.now(timezone.utc)}}
+                {"$set": {"payment_status": "completed", "completed_at": datetime.now(UTC)}}
             )
             if existing.get("user_id"):
                 await notify_user(existing["user_id"], "Payment Successful", f"Your {existing.get('plan', '')} subscription is now active!", "success")

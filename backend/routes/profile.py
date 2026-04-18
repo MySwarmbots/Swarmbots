@@ -2,7 +2,7 @@
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Request
 
-from server import db, get_current_user, send_telegram_message, ProfileUpdate, TelegramLinkRequest
+from server import ProfileUpdate, TelegramLinkRequest, db, get_current_user, send_telegram_message
 
 router = APIRouter()
 

@@ -1,7 +1,7 @@
 """Notifications routes."""
 from fastapi import APIRouter, Request
 
-from server import db, get_current_user, notify_user, NotificationCreate
+from server import NotificationCreate, db, get_current_user, notify_user
 
 router = APIRouter()
 

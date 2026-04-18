@@ -3,10 +3,10 @@ Iteration 12 Services Refactor Tests - Scheduler/Auto-Exec chain split from serv
 Tests the new services module: signal_tracker.py, auto_exec.py, scheduler.py
 CRITICAL: Verifies 100% parity with iteration_11 after refactor
 """
+import os
+
 import pytest
 import requests
-import os
-import time
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 

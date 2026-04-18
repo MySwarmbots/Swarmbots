@@ -1,14 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, RefreshCw, Settings, Terminal, Zap } from "lucide-react";
-import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
 import { logError } from "@/lib/utils";
 

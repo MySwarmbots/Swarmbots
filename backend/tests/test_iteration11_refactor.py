@@ -3,9 +3,10 @@ Iteration 11 Refactor Tests - Extended router extraction + 500→404 fix
 Tests the 6 new routers: profile, notifications, payments, signals, engine, dungeon
 CRITICAL: Verifies /api/payments/status/{invalid} returns 404 (not 500)
 """
+import os
+
 import pytest
 import requests
-import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 

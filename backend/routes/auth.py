@@ -4,31 +4,31 @@ Auth routes: register, login, logout, me, refresh, forgot-password, reset-passwo
 Shared state (db, helpers, models) is imported from `server` — this works because
 `server.py` imports this module AFTER defining those names, breaking the cycle.
 """
-from datetime import datetime, timezone, timedelta
 import secrets
+from datetime import UTC, datetime, timedelta
 
+import jwt as pyjwt
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Request, Response
-import jwt as pyjwt
 
 from server import (
-    db,
-    logger,
-    ensure_utc,
-    hash_password,
-    verify_password,
-    create_access_token,
-    create_refresh_token,
-    get_current_user,
-    get_jwt_secret,
     JWT_ALGORITHM,
-    send_email,
-    send_telegram_message,
-    build_email_html,
-    UserRegister,
-    UserLogin,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    UserLogin,
+    UserRegister,
+    build_email_html,
+    create_access_token,
+    create_refresh_token,
+    db,
+    ensure_utc,
+    get_current_user,
+    get_jwt_secret,
+    hash_password,
+    logger,
+    send_email,
+    send_telegram_message,
+    verify_password,
 )
 
 router = APIRouter()
@@ -44,7 +44,7 @@ async def register(data: UserRegister, response: Response):
         "email": email, "password_hash": hash_password(data.password),
         "name": data.name, "role": "user",
         "telegram_chat_id": None, "email_notifications": True, "telegram_notifications": True,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(UTC)
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
@@ -62,9 +62,9 @@ async def login(data: UserLogin, response: Response, request: Request):
     identifier = f"{request.client.host}:{email}"
     attempt = await db.login_attempts.find_one({"identifier": identifier})
     if attempt and attempt.get("count", 0) >= 5:
-        last_attempt = ensure_utc(attempt.get("last_attempt")) or datetime.min.replace(tzinfo=timezone.utc)
+        last_attempt = ensure_utc(attempt.get("last_attempt")) or datetime.min.replace(tzinfo=UTC)
         lockout_until = last_attempt + timedelta(minutes=15)
-        if datetime.now(timezone.utc) < lockout_until:
+        if datetime.now(UTC) < lockout_until:
             raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
         else:
             await db.login_attempts.delete_one({"identifier": identifier})
@@ -74,7 +74,7 @@ async def login(data: UserLogin, response: Response, request: Request):
         # Increment failed attempts
         await db.login_attempts.update_one(
             {"identifier": identifier},
-            {"$inc": {"count": 1}, "$set": {"last_attempt": datetime.now(timezone.utc)}},
+            {"$inc": {"count": 1}, "$set": {"last_attempt": datetime.now(UTC)}},
             upsert=True
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -136,9 +136,9 @@ async def forgot_password(data: ForgotPasswordRequest):
         "token": token,
         "user_id": str(user["_id"]),
         "email": email,
-        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "expires_at": datetime.now(UTC) + timedelta(hours=1),
         "used": False,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(UTC)
     })
 
     reset_link = f"/reset-password?token={token}"
@@ -171,7 +171,7 @@ async def reset_password(data: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     if token_doc.get("used"):
         raise HTTPException(status_code=400, detail="Reset token already used")
-    if datetime.now(timezone.utc) > ensure_utc(token_doc["expires_at"]):
+    if datetime.now(UTC) > ensure_utc(token_doc["expires_at"]):
         raise HTTPException(status_code=400, detail="Reset token has expired")
 
     new_hash = hash_password(data.new_password)

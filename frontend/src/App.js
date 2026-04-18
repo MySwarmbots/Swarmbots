@@ -1,38 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { Toaster } from "@/components/ui/sonner";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import axios from "axios";
 import { formatApiErrorDetail, formatCurrency, formatNumber, logError } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Activity, Bot, BarChart3, Shield, Bell, CreditCard, Plus, Trash2, Play, Pause, Send,
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle, XCircle, RefreshCw, Zap, Terminal,
-  ChevronRight, Eye, EyeOff, KeyRound, MessageCircle, Mail, ArrowUpDown, Layers, X,
+  Activity, Bot, BarChart3, Shield,
+  TrendingUp, TrendingDown, Zap, ArrowUpDown, Layers,
 } from "lucide-react";
 
-import { WsProvider, useWs } from "@/contexts/WsContext";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { useWs } from "@/contexts/WsContext";
 
-import ChartsPage from "@/pages/ChartsPage";
-import SignalsPage from "@/pages/SignalsPage";
-import DungeonPage from "@/pages/DungeonPage";
-import EnginePage from "@/pages/EnginePage";
-import ExchangePage from "@/pages/ExchangePage";
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
-import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
-import ResetPasswordPage from "@/pages/ResetPasswordPage";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -318,7 +296,7 @@ function AgentsPage() {
 
 // ============== VALIDATION PAGE ==============
 function ValidationPage() {
-  const [runs, setRuns] = useState([]); const [gate, setGate] = useState(null); const [loading, setLoading] = useState(true);
+  const [runs, setRuns] = useState([]); const [gate, setGate] = useState(null); const [, setLoading] = useState(true);
   const { lastMessage } = useWs();
 
   const fetchData = useCallback(async () => {

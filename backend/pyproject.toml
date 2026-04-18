@@ -1,0 +1,38 @@
+[tool.ruff]
+# MiroFish backend lint config — run with `ruff check` from /app/backend
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "__pycache__",
+    ".venv",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+# E = pycodestyle errors, F = pyflakes, B = bugbear, I = isort, UP = pyupgrade
+# Intentionally NOT enabling: E501 (line-too-long), since we allow 120-char lines
+select = ["E", "F", "B", "I", "UP"]
+# Ignore:
+#   E712 in test files is fixed, but we keep the rule on globally
+#   UP006/UP007 (use newer typing syntax) not critical for now
+#   B008 (default args in function calls) — FastAPI pattern (Depends, Request=None)
+#   UP035 (typing deprecated moves) — keep for Python 3.8 compat
+ignore = [
+    "B008",   # FastAPI pattern: default args like Depends(), Request=None
+    "UP035",  # typing deprecations — keep Python 3.8 compat
+    "UP006",  # typing deprecations
+    "UP007",  # typing deprecations
+    "E501",   # line too long — we allow 120
+    "E402",   # module-level imports not at top — we use the late-import
+              # pattern to avoid circular imports (server.py → routes → server)
+    "B904",   # `raise X from e` inside except — idiomatic FastAPI re-raise
+              # of HTTPException loses no meaningful context to the client
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files may use explicit `== True` for readability in rare cases, but we've fixed them
+"tests/*" = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

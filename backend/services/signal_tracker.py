@@ -3,11 +3,11 @@ Signal accuracy tracker service.
 Records entry prices when swarm predictions fire, then verifies them 15 min later
 to build a rolling dataset of signal hit-rate used by the Signal Intelligence engine.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 import bitget_exchange as bgx
-from services.auto_exec import _normalize_symbol
 from server import db
+from services.auto_exec import _normalize_symbol
 
 
 async def _snapshot_price(symbol: str) -> float:
@@ -34,13 +34,13 @@ async def record_prediction_with_price(run: dict):
         "pnl_pct": None,
         "correct": None,
         "checked": False,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     })
 
 
 async def check_pending_signals():
     """Check signals older than 15 min and record exit price + accuracy. Batched by symbol."""
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+    cutoff = datetime.now(UTC) - timedelta(minutes=15)
     pending = await db.signal_accuracy.find(
         {"checked": False, "created_at": {"$lt": cutoff}}
     ).limit(50).to_list(50)

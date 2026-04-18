@@ -2,9 +2,10 @@
 MiroFish Iteration 9 Backend Tests
 Testing Code Review Round 3 regression + all core endpoints
 """
+import os
+
 import pytest
 import requests
-import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://mirofish-mobile.preview.emergentagent.com')
 

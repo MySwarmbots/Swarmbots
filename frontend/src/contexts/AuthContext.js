@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await axios.get(`${API}/api/auth/me`, { withCredentials: true });
       setUser(data);
-    } catch (e) {
+    } catch {
       setUser(false);
     } finally {
       setLoading(false);

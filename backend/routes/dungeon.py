@@ -4,12 +4,12 @@ The scheduler loop + prediction helpers remain in server.py due to deep coupling
 from fastapi import APIRouter, HTTPException, Request
 
 import swarm_dungeon as sd
-from server import db, ws_manager, get_current_user
+from server import db, get_current_user, ws_manager
 from services.auto_exec import (
+    AutoExecConfigUpdate,
     auto_execute_prediction,
     get_auto_exec_config,
     update_auto_exec_config,
-    AutoExecConfigUpdate,
 )
 
 router = APIRouter()

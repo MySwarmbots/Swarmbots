@@ -1,30 +1,27 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
-import os
-import logging
-import bcrypt
-import jwt as pyjwt
-import secrets
-import json
 import asyncio
-import httpx
-import resend
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+import logging
+import os
+import secrets
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Dict, List
+
+import bcrypt
+import httpx
+import jwt as pyjwt
+import resend
+from bson import ObjectId
 
 # LLM integration
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
-)
+from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -53,21 +50,21 @@ def ensure_utc(dt):
     if isinstance(dt, str):
         dt = datetime.fromisoformat(dt)
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 # JWT Token management
 def create_access_token(user_id: str, email: str) -> str:
     payload = {
         "sub": user_id, "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=15), "type": "access"
+        "exp": datetime.now(UTC) + timedelta(minutes=15), "type": "access"
     }
     return pyjwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 def create_refresh_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"
+        "exp": datetime.now(UTC) + timedelta(days=7), "type": "refresh"
     }
     return pyjwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -239,7 +236,7 @@ async def notify_user(user_id: str, title: str, message: str, notif_type: str = 
         "message": message,
         "type": notif_type,
         "read": False,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(UTC).isoformat()
     }
     await db.notifications.insert_one(notif_doc)
 
@@ -301,7 +298,7 @@ class AgentCreate(BaseModel):
 
 class AIInsightRequest(BaseModel):
     prompt: str
-    context: Optional[str] = None
+    context: str | None = None
 
 class CreateCheckoutRequest(BaseModel):
     plan: str
@@ -316,10 +313,10 @@ class TelegramLinkRequest(BaseModel):
     chat_id: str
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    email_notifications: Optional[bool] = None
-    telegram_notifications: Optional[bool] = None
+    name: str | None = None
+    telegram_chat_id: str | None = None
+    email_notifications: bool | None = None
+    telegram_notifications: bool | None = None
 
 # ============== VALIDATION ENGINE ==============
 
@@ -359,7 +356,7 @@ async def validate_fill(symbol, exchange, expected_price, actual_price, expected
 
     gate = await get_gate_state()
     run_doc = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "symbol": symbol, "exchange": exchange, "mode": gate["mode"],
         "expected_price": expected_price, "actual_price": actual_price,
         "expected_fee_bps": expected_fee_bps, "actual_fee_bps": actual_fee_bps,
@@ -419,7 +416,7 @@ def generate_performance_history(days=30):
     history = []
     cumulative_pnl = 0
     for i in range(days):
-        day = (datetime.now(timezone.utc) - timedelta(days=days - i)).strftime("%Y-%m-%d")
+        day = (datetime.now(UTC) - timedelta(days=days - i)).strftime("%Y-%m-%d")
         daily_pnl = round(secrets.randbelow(4501) / 10 - 150, 2)
         cumulative_pnl += daily_pnl
         trades = secrets.randbelow(36) + 5
@@ -453,7 +450,7 @@ async def get_agent_performance(agent_id: str, request: Request):
     perf = await db.agent_performance.find_one({"agent_id": agent_id}, {"_id": 0})
     if not perf:
         history = generate_performance_history()
-        perf = {"agent_id": agent_id, "history": history, "generated_at": datetime.now(timezone.utc).isoformat()}
+        perf = {"agent_id": agent_id, "history": history, "generated_at": datetime.now(UTC).isoformat()}
         await db.agent_performance.insert_one(perf)
         perf.pop("_id", None)
 
@@ -499,7 +496,7 @@ async def create_agent(data: AgentCreate, request: Request):
         "pnl": round(secrets.randbelow(2501) - 500 + secrets.randbelow(100) / 100, 2),
         "win_rate": round(0.45 + (secrets.randbelow(31) / 100), 2),
         "total_trades": secrets.randbelow(491) + 10,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(UTC).isoformat()
     }
     await db.agents.insert_one(agent_doc)
     agent_resp = {k: v for k, v in agent_doc.items() if k != "_id" and k != "user_id"}
@@ -559,7 +556,7 @@ async def get_ai_insights(data: AIInsightRequest, request: Request):
         prompt = f"Context: {data.context}\n\nQuestion: {data.prompt}"
     user_message = UserMessage(text=prompt)
     response = await chat.send_message(user_message)
-    return {"insight": response, "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"insight": response, "timestamp": datetime.now(UTC).isoformat()}
 
 # ============== DASHBOARD STATS ==============
 
@@ -615,13 +612,10 @@ async def health():
 # ============== PROFIT ENGINE ROUTES ==============
 # HTTP routes extracted to routes/engine.py. Library imports kept here
 # because the scheduler/auto-exec helpers also use them.
-import profit_engine as pe
-import bitget_exchange as bgx
 
 # ============== SPACE DUNGEON SWARM ROUTES ==============
 
 import swarm_dungeon as sd
-
 
 # ============== WEBSOCKET TOKEN + ENDPOINT ==============
 
@@ -631,7 +625,7 @@ async def get_ws_token(request: Request):
     user = await get_current_user(request)
     payload = {
         "sub": user["_id"],
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "exp": datetime.now(UTC) + timedelta(minutes=5),
         "type": "ws"
     }
     token = pyjwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -665,14 +659,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 # (db, ws_manager, get_current_user, notify_user, models, etc.) are already
 # defined when the router modules execute `from server import ...`.
 from routes import auth as _auth_routes  # noqa: E402
+from routes import dungeon as _dungeon_routes  # noqa: E402
+from routes import engine as _engine_routes  # noqa: E402
 from routes import exchange as _exchange_routes  # noqa: E402
-from routes import scheduler as _scheduler_routes  # noqa: E402
-from routes import profile as _profile_routes  # noqa: E402
 from routes import notifications as _notif_routes  # noqa: E402
 from routes import payments as _payment_routes  # noqa: E402
+from routes import profile as _profile_routes  # noqa: E402
+from routes import scheduler as _scheduler_routes  # noqa: E402
 from routes import signals as _signal_routes  # noqa: E402
-from routes import engine as _engine_routes  # noqa: E402
-from routes import dungeon as _dungeon_routes  # noqa: E402
 
 for _r in (_auth_routes, _exchange_routes, _scheduler_routes, _profile_routes,
            _notif_routes, _payment_routes, _signal_routes, _engine_routes, _dungeon_routes):
@@ -709,7 +703,7 @@ async def startup():
             "email": admin_email, "password_hash": hash_password(admin_password),
             "name": "Admin", "role": "admin",
             "telegram_chat_id": None, "email_notifications": True, "telegram_notifications": True,
-            "created_at": datetime.now(timezone.utc)
+            "created_at": datetime.now(UTC)
         })
         logger.info(f"Admin user created: {admin_email}")
     elif not verify_password(admin_password, existing["password_hash"]):

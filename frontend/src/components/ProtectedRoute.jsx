@@ -1,6 +1,4 @@
-import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { WsProvider } from "@/contexts/WsContext";
 
 export function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();

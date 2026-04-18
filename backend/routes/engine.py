@@ -1,22 +1,21 @@
 """Profit Engine HTTP routes."""
-from typing import Optional
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 import profit_engine as pe
-from server import ws_manager, get_current_user, notify_user
+from server import get_current_user, notify_user, ws_manager
 
 router = APIRouter()
 
 
 class EngineConfigUpdate(BaseModel):
-    base_confidence_threshold: Optional[float] = None
-    top_signal_count: Optional[int] = None
-    max_position_notional_usd: Optional[float] = None
-    max_daily_loss_usd: Optional[float] = None
-    kill_switch: Optional[str] = None
-    cooldown_bars: Optional[int] = None
+    base_confidence_threshold: float | None = None
+    top_signal_count: int | None = None
+    max_position_notional_usd: float | None = None
+    max_daily_loss_usd: float | None = None
+    kill_switch: str | None = None
+    cooldown_bars: int | None = None
 
 @router.get("/engine/swarm")
 async def engine_swarm():

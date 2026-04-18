@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Button } from "@/components/ui/button";
 import {
-  Activity, Bot, BarChart3, Bell, LogOut,
-  Menu, X, TrendingUp,
+  Activity, Bot, BarChart3, Bell, TrendingUp,
   Zap, Settings, ArrowUpDown, Layers,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";

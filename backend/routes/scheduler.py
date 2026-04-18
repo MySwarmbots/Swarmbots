@@ -3,17 +3,17 @@ Scheduler routes: /dungeon/scheduler/status, /dungeon/scheduler/trigger.
 The scheduler background loop (`scheduler_loop`) remains registered in server.py startup
 because it is deeply coupled with prediction, auto-exec, telegram broadcast helpers.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 
 import swarm_dungeon as sd
-from server import db, ws_manager, get_current_user
-from services.auto_exec import get_auto_exec_config, auto_execute_prediction
+from server import db, get_current_user, ws_manager
+from services.auto_exec import auto_execute_prediction, get_auto_exec_config
 from services.scheduler import (
-    _get_telegram_users,
     _broadcast_to_telegram,
     _format_prediction_telegram,
+    _get_telegram_users,
 )
 
 router = APIRouter()
@@ -43,7 +43,7 @@ async def scheduler_trigger_now(symbol: str = "BTCUSDT", request: Request = None
         "symbol": symbol, "direction": result["direction"],
         "confidence": result["confidence"], "votes": result["votes"],
         "timestamp": result["timestamp"], "manual": True,
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(UTC)
     })
 
     await ws_manager.broadcast({"type": "scheduler_prediction", "data": {

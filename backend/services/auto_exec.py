@@ -4,14 +4,13 @@ Takes swarm predictions, applies signal-intelligence adjustments, validates
 preconditions, and places real Bitget orders. Also persists per-user config
 (enabled flag, cooldown, position-sizing multipliers, quiet hours, etc.).
 """
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Dict, List
 
 from pydantic import BaseModel
 
 import bitget_exchange as bgx
-from server import db, ws_manager, logger, ensure_utc, notify_user
-
+from server import db, ensure_utc, logger, notify_user, ws_manager
 
 # ---------- Config state ----------
 
@@ -52,18 +51,18 @@ async def update_auto_exec_config(updates: dict):
 
 
 class AutoExecConfigUpdate(BaseModel):
-    enabled: Optional[bool] = None
-    max_trade_usd: Optional[float] = None
-    min_confidence: Optional[float] = None
-    allowed_symbols: Optional[List[str]] = None
-    allowed_directions: Optional[List[str]] = None
-    market_type: Optional[str] = None
-    cooldown_seconds: Optional[int] = None
-    scheduler_enabled: Optional[bool] = None
-    scheduler_interval_minutes: Optional[int] = None
-    scheduler_symbols: Optional[List[str]] = None
-    symbol_multipliers: Optional[Dict[str, float]] = None
-    quiet_hours_utc: Optional[List[int]] = None
+    enabled: bool | None = None
+    max_trade_usd: float | None = None
+    min_confidence: float | None = None
+    allowed_symbols: List[str] | None = None
+    allowed_directions: List[str] | None = None
+    market_type: str | None = None
+    cooldown_seconds: int | None = None
+    scheduler_enabled: bool | None = None
+    scheduler_interval_minutes: int | None = None
+    scheduler_symbols: List[str] | None = None
+    symbol_multipliers: Dict[str, float] | None = None
+    quiet_hours_utc: List[int] | None = None
 
 
 # ---------- Signal intelligence ----------
@@ -132,7 +131,7 @@ def _check_exec_preconditions(config: dict, prediction: dict) -> str:
         return f"direction_{direction}_not_allowed"
 
     # Quiet hours check (UTC)
-    current_hour_utc = datetime.now(timezone.utc).hour
+    current_hour_utc = datetime.now(UTC).hour
     quiet_hours = config.get("quiet_hours_utc", [])
     if current_hour_utc in quiet_hours:
         return f"quiet_hour_{current_hour_utc}utc"
@@ -148,7 +147,7 @@ def _check_exec_preconditions(config: dict, prediction: dict) -> str:
         try:
             last_dt = ensure_utc(last_ts)
             if last_dt:
-                elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                elapsed = (datetime.now(UTC) - last_dt).total_seconds()
                 cooldown = config.get("cooldown_seconds", 300)
                 if elapsed < cooldown:
                     return f"cooldown_active_{int(cooldown - elapsed)}s_remaining"
@@ -187,7 +186,7 @@ async def _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, dire
 
     # Success path — log and broadcast
     await update_auto_exec_config({
-        "last_trade_ts": datetime.now(timezone.utc).isoformat(),
+        "last_trade_ts": datetime.now(UTC).isoformat(),
         "total_trades": config.get("total_trades", 0) + 1,
     })
 
@@ -196,7 +195,7 @@ async def _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, dire
         "quantity": quantity, "price": price, "notional_usd": max_usd,
         "confidence": confidence, "direction": direction,
         "order_id": order.get("id"), "order_status": order.get("status"),
-        "created_at": datetime.now(timezone.utc)
+        "created_at": datetime.now(UTC)
     }
     await db.auto_exec_trades.insert_one(trade_record)
 
