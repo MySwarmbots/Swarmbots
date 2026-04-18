@@ -17,7 +17,23 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
   - Telegram alerts include intelligence adjustments
 
 ## CHANGELOG
-### Feb 2026 — P1 Refactor (regression-tested, iteration_10)
+### Feb 2026 — P2 Refactor Wave 2 (iteration_11)
+**Backend: `server.py` 1614 → 1167 lines (total -38% from original 1880)**
+- `/backend/routes/profile.py` (profile GET/PATCH, telegram link/unlink/test)
+- `/backend/routes/notifications.py` (list, unread-count, create, mark read, mark-all-read)
+- `/backend/routes/payments.py` (plans, checkout, status, webhook) — SUBSCRIPTION_PLANS moved here
+- `/backend/routes/signals.py` (accuracy, pending, intelligence)
+- `/backend/routes/engine.py` (all /engine/* + EngineConfigUpdate model)
+- `/backend/routes/dungeon.py` (agents, debate, prediction, auto-exec, rollout)
+
+**Frontend: `App.js` 921 → 718 lines (total -72% from original 2534)**
+- `/src/pages/LoginPage.jsx` (68), `RegisterPage.jsx` (54), `ForgotPasswordPage.jsx` (70), `ResetPasswordPage.jsx` (63)
+
+**Bug fix**: `GET /api/payments/status/{invalid_session_id}` now returns HTTP 404 with `"Checkout session not found"` (was 500). Other Stripe errors return 400 with descriptive detail.
+
+**Testing**: iteration_11 passed 36/36 backend + all frontend pages. Scheduler verified running every 5 min across 6 symbols.
+
+### Feb 2026 — P1 Refactor Wave 1 (iteration_10)
 **Frontend: `App.js` split from 2534 → 921 lines**
 - `/src/pages/ChartsPage.jsx` (219 lines)
 - `/src/pages/SignalsPage.jsx` (254 lines)
@@ -45,7 +61,6 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
 - Backend: `swarm_dungeon.run_debate` uses `_sec_sample` (secrets-based sample without replacement), fully replaces `random` module
 - Lint: 0 warnings on ruff (backend) and ESLint with `react-hooks/exhaustive-deps` + `react/jsx-key` (frontend)
 
-## Roadmap (P2)
-- Extract more backend routers (profile, profit_engine, dungeon-core, signals, notifications, payments, agents) as codebase grows
-- Extract remaining auth-adjacent small pages (Login/Register/Forgot/Reset) into `/src/pages/`
-- Add leaderboard / shareable agent card for virality
+## Roadmap (P3)
+- Add public leaderboard / shareable agent card for virality
+- Consider splitting remaining server.py helpers (scheduler_loop + auto-exec chain) into `/backend/services/` if they grow further

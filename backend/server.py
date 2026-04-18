@@ -383,67 +383,6 @@ async def get_validation_summary():
     return {"total_runs": total, "passed": passed, "failed": total - passed, "gate": await get_gate_state()}
 
 
-# ============== PROFILE / TELEGRAM LINK ==============
-
-@api_router.get("/profile")
-async def get_profile(request: Request):
-    user = await get_current_user(request)
-    return {
-        "id": user["_id"],
-        "email": user.get("email"),
-        "name": user.get("name"),
-        "role": user.get("role"),
-        "telegram_chat_id": user.get("telegram_chat_id"),
-        "email_notifications": user.get("email_notifications", True),
-        "telegram_notifications": user.get("telegram_notifications", True),
-    }
-
-@api_router.patch("/profile")
-async def update_profile(data: ProfileUpdate, request: Request):
-    user = await get_current_user(request)
-    updates = {}
-    if data.name is not None:
-        updates["name"] = data.name
-    if data.telegram_chat_id is not None:
-        updates["telegram_chat_id"] = data.telegram_chat_id
-    if data.email_notifications is not None:
-        updates["email_notifications"] = data.email_notifications
-    if data.telegram_notifications is not None:
-        updates["telegram_notifications"] = data.telegram_notifications
-    if updates:
-        await db.users.update_one({"_id": ObjectId(user["_id"])}, {"$set": updates})
-    return {"message": "Profile updated"}
-
-@api_router.post("/telegram/link")
-async def link_telegram(data: TelegramLinkRequest, request: Request):
-    user = await get_current_user(request)
-    await db.users.update_one({"_id": ObjectId(user["_id"])}, {"$set": {"telegram_chat_id": data.chat_id}})
-    # Send verification
-    success = await send_telegram_message(data.chat_id, f"✅ <b>MiroFish Connected!</b>\nHello {user.get('name', 'Trader')}, your Telegram is now linked to MiroFish. You'll receive trading alerts here.")
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to send verification. Check your Chat ID.")
-    return {"message": "Telegram linked successfully"}
-
-@api_router.post("/telegram/unlink")
-async def unlink_telegram(request: Request):
-    user = await get_current_user(request)
-    await db.users.update_one({"_id": ObjectId(user["_id"])}, {"$set": {"telegram_chat_id": None}})
-    return {"message": "Telegram unlinked"}
-
-@api_router.post("/telegram/test")
-async def test_telegram(request: Request):
-    user = await get_current_user(request)
-    full_user = await db.users.find_one({"_id": ObjectId(user["_id"])})
-    if not full_user or not full_user.get("telegram_chat_id"):
-        raise HTTPException(status_code=400, detail="Telegram not linked")
-    success = await send_telegram_message(
-        full_user["telegram_chat_id"],
-        "🧪 <b>Test Notification</b>\nThis is a test message from MiroFish. Your notifications are working!"
-    )
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to send test message")
-    return {"message": "Test message sent"}
-
 # ============== VALIDATION ROUTES ==============
 
 @api_router.get("/validation/gate")
@@ -619,114 +558,6 @@ async def get_ai_insights(data: AIInsightRequest, request: Request):
     response = await chat.send_message(user_message)
     return {"insight": response, "timestamp": datetime.now(timezone.utc).isoformat()}
 
-# ============== PAYMENTS ROUTES ==============
-
-SUBSCRIPTION_PLANS = {
-    "starter": {"name": "Starter", "amount": 29.00, "agents": 3, "features": ["3 Trading Agents", "Basic Analytics", "Email Support"]},
-    "pro": {"name": "Pro", "amount": 99.00, "agents": 10, "features": ["10 Trading Agents", "Advanced Analytics", "Priority Support", "AI Insights"]},
-    "enterprise": {"name": "Enterprise", "amount": 299.00, "agents": 50, "features": ["50 Trading Agents", "Full Analytics Suite", "24/7 Support", "AI Insights", "Custom Strategies"]}
-}
-
-@api_router.get("/payments/plans")
-async def get_plans():
-    return {"plans": SUBSCRIPTION_PLANS}
-
-@api_router.post("/payments/checkout")
-async def create_checkout(data: CreateCheckoutRequest, request: Request):
-    user = await get_current_user(request)
-    if data.plan not in SUBSCRIPTION_PLANS:
-        raise HTTPException(status_code=400, detail="Invalid plan")
-    plan = SUBSCRIPTION_PLANS[data.plan]
-    api_key = os.environ.get("STRIPE_API_KEY")
-    webhook_url = f"{data.origin_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    success_url = f"{data.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{data.origin_url}/payment/cancel"
-    checkout_request = CheckoutSessionRequest(
-        amount=plan["amount"], currency="usd",
-        success_url=success_url, cancel_url=cancel_url,
-        metadata={"user_id": user["_id"], "plan": data.plan},
-        payment_methods=["card", "crypto"]
-    )
-    session = await stripe_checkout.create_checkout_session(checkout_request)
-    await db.payment_transactions.insert_one({
-        "session_id": session.session_id, "user_id": user["_id"],
-        "plan": data.plan, "amount": plan["amount"], "currency": "usd",
-        "payment_status": "pending", "created_at": datetime.now(timezone.utc)
-    })
-    return {"url": session.url, "session_id": session.session_id}
-
-@api_router.get("/payments/status/{session_id}")
-async def get_payment_status(session_id: str, request: Request):
-    api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    status = await stripe_checkout.get_checkout_status(session_id)
-    if status.payment_status == "paid":
-        existing = await db.payment_transactions.find_one({"session_id": session_id})
-        if existing and existing.get("payment_status") != "completed":
-            await db.payment_transactions.update_one(
-                {"session_id": session_id},
-                {"$set": {"payment_status": "completed", "completed_at": datetime.now(timezone.utc)}}
-            )
-            if existing.get("user_id"):
-                await notify_user(existing["user_id"], "Payment Successful", f"Your {existing.get('plan', '')} subscription is now active!", "success")
-    return {
-        "status": status.status, "payment_status": status.payment_status,
-        "amount_total": status.amount_total, "currency": status.currency
-    }
-
-@api_router.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
-    body = await request.body()
-    signature = request.headers.get("Stripe-Signature")
-    api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    try:
-        event = await stripe_checkout.handle_webhook(body, signature)
-        logger.info(f"Stripe webhook event: {event.event_type}")
-        return {"received": True}
-    except Exception as e:
-        logger.error(f"Webhook error: {str(e)}")
-        return {"received": True}
-
-# ============== NOTIFICATIONS ROUTES ==============
-
-@api_router.get("/notifications")
-async def get_notifications(request: Request):
-    user = await get_current_user(request)
-    notifications = await db.notifications.find(
-        {"user_id": user["_id"]}, {"_id": 0, "user_id": 0}
-    ).sort("created_at", -1).limit(50).to_list(50)
-    return {"notifications": notifications}
-
-@api_router.get("/notifications/unread-count")
-async def get_unread_count(request: Request):
-    user = await get_current_user(request)
-    count = await db.notifications.count_documents({"user_id": user["_id"], "read": False})
-    return {"count": count}
-
-@api_router.post("/notifications")
-async def create_notification(data: NotificationCreate, request: Request):
-    user = await get_current_user(request)
-    await notify_user(user["_id"], data.title, data.message, data.type)
-    return {"message": "Notification created"}
-
-@api_router.patch("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: str, request: Request):
-    user = await get_current_user(request)
-    await db.notifications.update_one({"id": notif_id, "user_id": user["_id"]}, {"$set": {"read": True}})
-    return {"message": "Marked as read"}
-
-@api_router.post("/notifications/mark-all-read")
-async def mark_all_read(request: Request):
-    user = await get_current_user(request)
-    await db.notifications.update_many({"user_id": user["_id"], "read": False}, {"$set": {"read": True}})
-    return {"message": "All marked as read"}
-
 # ============== DASHBOARD STATS ==============
 
 @api_router.get("/dashboard/stats")
@@ -835,110 +666,6 @@ async def check_pending_signals():
         )
 
 
-@api_router.get("/signals/accuracy")
-async def get_signal_accuracy(limit: int = 100):
-    """Return signal accuracy history and aggregate stats."""
-    # Run check in background — don't block the response
-    asyncio.create_task(check_pending_signals())
-
-    signals = await db.signal_accuracy.find(
-        {"checked": True}, {"_id": 0}
-    ).sort("created_at", -1).limit(limit).to_list(limit)
-
-    total = len(signals)
-    correct_count = sum(1 for s in signals if s.get("correct") is True)
-    win_rate = round(correct_count / total * 100, 1) if total > 0 else 0
-    avg_pnl = round(sum(s.get("pnl_pct", 0) for s in signals) / total, 3) if total > 0 else 0
-    total_pnl = round(sum(s.get("pnl_pct", 0) for s in signals), 3)
-
-    # Per-symbol breakdown
-    by_symbol = {}
-    for s in signals:
-        sym = s["symbol"]
-        if sym not in by_symbol:
-            by_symbol[sym] = {"total": 0, "correct": 0, "pnl": 0}
-        by_symbol[sym]["total"] += 1
-        if s.get("correct"):
-            by_symbol[sym]["correct"] += 1
-        by_symbol[sym]["pnl"] += s.get("pnl_pct", 0)
-
-    symbol_stats = [
-        {"symbol": k, "total": v["total"], "correct": v["correct"],
-         "win_rate": round(v["correct"] / v["total"] * 100, 1) if v["total"] else 0,
-         "total_pnl": round(v["pnl"], 3)}
-        for k, v in by_symbol.items()
-    ]
-
-    # Per-direction breakdown
-    by_direction = {}
-    for s in signals:
-        d = s["direction"]
-        if d not in by_direction:
-            by_direction[d] = {"total": 0, "correct": 0, "pnl": 0}
-        by_direction[d]["total"] += 1
-        if s.get("correct"):
-            by_direction[d]["correct"] += 1
-        by_direction[d]["pnl"] += s.get("pnl_pct", 0)
-
-    direction_stats = [
-        {"direction": k, "total": v["total"], "correct": v["correct"],
-         "win_rate": round(v["correct"] / v["total"] * 100, 1) if v["total"] else 0,
-         "total_pnl": round(v["pnl"], 3)}
-        for k, v in by_direction.items()
-    ]
-
-    pending_count = await db.signal_accuracy.count_documents({"checked": False})
-
-    return {
-        "total_signals": total,
-        "correct": correct_count,
-        "win_rate": win_rate,
-        "avg_pnl_pct": avg_pnl,
-        "total_pnl_pct": total_pnl,
-        "pending": pending_count,
-        "by_symbol": symbol_stats,
-        "by_direction": direction_stats,
-        "signals": signals,
-    }
-
-
-@api_router.get("/signals/pending")
-async def get_pending_signals():
-    pending = await db.signal_accuracy.find({"checked": False}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
-    return {"pending": pending}
-
-@api_router.get("/signals/intelligence")
-async def get_signal_intelligence():
-    """Return per-symbol, per-direction intelligence data for the dashboard."""
-    pipeline = [
-        {"$match": {"checked": True}},
-        {"$group": {
-            "_id": {"symbol": "$symbol", "direction": "$direction"},
-            "total": {"$sum": 1},
-            "correct": {"$sum": {"$cond": [{"$eq": ["$correct", True]}, 1, 0]}},
-            "total_pnl": {"$sum": "$pnl_pct"},
-            "avg_pnl": {"$avg": "$pnl_pct"},
-        }},
-        {"$sort": {"_id.symbol": 1}}
-    ]
-    results = await db.signal_accuracy.aggregate(pipeline).to_list(100)
-    intel = []
-    for r in results:
-        wr = round(r["correct"] / r["total"] * 100, 1) if r["total"] > 0 else 0
-        direction = r["_id"]["direction"]
-        boost = "boost" if wr >= 80 else "penalize" if wr <= 30 else "neutral"
-        intel.append({
-            "symbol": r["_id"]["symbol"],
-            "direction": direction,
-            "direction_label": {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(direction, direction),
-            "total": r["total"],
-            "correct": r["correct"],
-            "win_rate": wr,
-            "total_pnl": round(r["total_pnl"], 3),
-            "avg_pnl": round(r["avg_pnl"], 4),
-            "action": boost,
-        })
-    return {"intelligence": intel}
 
 # ============== HEALTH ==============
 
@@ -952,91 +679,10 @@ async def health():
 
 
 # ============== PROFIT ENGINE ROUTES ==============
-
+# HTTP routes extracted to routes/engine.py. Library imports kept here
+# because the scheduler/auto-exec helpers also use them.
 import profit_engine as pe
 import bitget_exchange as bgx
-
-class EngineConfigUpdate(BaseModel):
-    base_confidence_threshold: Optional[float] = None
-    top_signal_count: Optional[int] = None
-    max_position_notional_usd: Optional[float] = None
-    max_daily_loss_usd: Optional[float] = None
-    kill_switch: Optional[str] = None
-    cooldown_bars: Optional[int] = None
-
-@api_router.get("/engine/swarm")
-async def engine_swarm():
-    return pe.swarm_state
-
-@api_router.get("/engine/optimizer")
-async def engine_optimizer():
-    return pe.optimizer_state
-
-@api_router.get("/engine/predictions")
-async def engine_predictions():
-    return {"predictions": list(pe.prediction_log)}
-
-@api_router.get("/engine/positions")
-async def engine_positions():
-    return {"positions": list(pe.positions.values())}
-
-@api_router.get("/engine/pnl")
-async def engine_pnl():
-    return {"realized_pnl_usd": pe.realized_pnl_usd}
-
-@api_router.get("/engine/orders")
-async def engine_orders():
-    return {"orders": list(pe.order_log)}
-
-@api_router.get("/engine/trades")
-async def engine_trades():
-    return {"trades": list(pe.trade_log)}
-
-@api_router.get("/engine/config")
-async def engine_config():
-    return {
-        "base_confidence_threshold": pe.BASE_CONFIDENCE_THRESHOLD,
-        "top_signal_count": pe.TOP_SIGNAL_COUNT,
-        "max_position_notional_usd": pe.MAX_POSITION_NOTIONAL_USD,
-        "max_daily_loss_usd": pe.MAX_DAILY_LOSS_USD,
-        "kill_switch": pe.KILL_SWITCH,
-        "cooldown_bars": pe.COOLDOWN_BARS,
-    }
-
-@api_router.patch("/engine/config")
-async def update_engine_config(data: EngineConfigUpdate, request: Request):
-    await get_current_user(request)
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
-    pe.update_config(updates)
-    # Broadcast via WS
-    await ws_manager.broadcast({"type": "engine_config", "data": updates})
-    return await engine_config()
-
-@api_router.post("/engine/execute-snapshot")
-async def engine_execute_snapshot(snapshot: pe.SignalSnapshot, request: Request):
-    await get_current_user(request)
-    pred = pe.build_prediction(snapshot)
-    result = pred.model_dump()
-    pe.prediction_log.appendleft(result)
-    await ws_manager.broadcast({"type": "engine_prediction", "data": result})
-    return result
-
-@api_router.post("/engine/webhook/tradingview")
-async def engine_tradingview_webhook(payload: pe.TradingViewWebhook):
-    result = pe.process_webhook(payload)
-    await ws_manager.broadcast({"type": "engine_webhook", "data": result})
-    # If trade executed, notify all connected users
-    if result.get("status") == "executed":
-        for uid in ws_manager.active_connections:
-            await notify_user(uid, "Trade Executed",
-                f"{result['position']['side'].upper()} {result['position']['symbol']} — Qty: {result['position']['quantity']} @ ${payload.price}",
-                "success")
-    return result
-
-@api_router.post("/engine/backtest")
-async def engine_backtest(snapshots: list[pe.SignalSnapshot], request: Request):
-    await get_current_user(request)
-    return pe.run_backtest(snapshots)
 
 # ============== SPACE DUNGEON SWARM ROUTES ==============
 
@@ -1266,67 +912,6 @@ async def _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, dire
 
     return {"executed": True, "order": order, "trade": trade_record}
 
-# --- Dungeon API routes ---
-
-@api_router.get("/dungeon/agents")
-async def dungeon_agents():
-    return {"agents": sd.generate_agents()}
-
-@api_router.get("/dungeon/agents/{agent_id}")
-async def dungeon_agent(agent_id: str):
-    a = sd.get_agent(agent_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    return a
-
-@api_router.get("/dungeon/debate")
-async def dungeon_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
-    stances = sd.run_debate(symbol, timeframe)
-    await ws_manager.broadcast({"type": "dungeon_debate", "data": {"symbol": symbol, "stances_count": len(stances)}})
-    return {"symbol": symbol, "timeframe": timeframe, "debate": stances}
-
-@api_router.get("/dungeon/prediction")
-async def dungeon_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m", auto_exec: bool = True):
-    result = sd.aggregate_prediction(symbol, timeframe)
-    await ws_manager.broadcast({"type": "dungeon_prediction", "data": {"symbol": symbol, "direction": result["direction"], "confidence": result["confidence"]}})
-
-    # Auto-execute if enabled
-    exec_result = None
-    if auto_exec:
-        exec_result = await auto_execute_prediction(result)
-    result["auto_exec"] = exec_result
-    return result
-
-@api_router.get("/dungeon/predictions")
-async def dungeon_predictions():
-    return {"predictions": list(sd.prediction_log)}
-
-@api_router.get("/dungeon/debates")
-async def dungeon_debates():
-    return {"debates": list(sd.debate_log)}
-
-# --- Auto-Exec Config API ---
-
-@api_router.get("/dungeon/auto-exec/config")
-async def get_auto_exec_cfg(request: Request):
-    await get_current_user(request)
-    return await get_auto_exec_config()
-
-@api_router.patch("/dungeon/auto-exec/config")
-async def patch_auto_exec_cfg(data: AutoExecConfigUpdate, request: Request):
-    await get_current_user(request)
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
-    result = await update_auto_exec_config(updates)
-    await ws_manager.broadcast({"type": "auto_exec_config", "data": result})
-    return result
-
-@api_router.get("/dungeon/auto-exec/trades")
-async def get_auto_exec_trades(limit: int = 50, request: Request = None):
-    if request:
-        await get_current_user(request)
-    trades = await db.auto_exec_trades.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
-    return {"trades": trades}
-
 # --- Scheduler ---
 
 DIRECTION_EMOJI = {"long_bias": "\U0001F7E2", "short_bias": "\U0001F534", "wait": "\U0001F7E1"}
@@ -1439,43 +1024,6 @@ async def scheduler_loop():
             await asyncio.sleep(30)
 
 
-# --- Rollout routes ---
-
-@api_router.get("/dungeon/rollout")
-async def dungeon_rollout():
-    return sd.rollout_summary()
-
-@api_router.post("/dungeon/rollout/promote")
-async def dungeon_promote(request: Request):
-    await get_current_user(request)
-    result = sd.promote()
-    await ws_manager.broadcast({"type": "dungeon_rollout", "data": result})
-    return result
-
-@api_router.post("/dungeon/rollout/demote")
-async def dungeon_demote(reason: str = "manual_demote", request: Request = None):
-    if request:
-        await get_current_user(request)
-    return sd.demote(reason)
-
-@api_router.post("/dungeon/rollout/set-stage")
-async def dungeon_set_stage(stage: str, request: Request = None):
-    if request:
-        await get_current_user(request)
-    return sd.set_stage(stage)
-
-@api_router.post("/dungeon/rollout/validation")
-async def dungeon_validation(passed: bool, reason: str = ""):
-    return sd.record_validation(passed, reason)
-
-@api_router.post("/dungeon/rollout/anomaly")
-async def dungeon_anomaly(message: str = "anomaly_detected"):
-    return sd.record_anomaly(message)
-
-@api_router.get("/dungeon/rollout/audit")
-async def dungeon_audit():
-    return {"audit": sd.get_audit()}
-
 # ============== WEBSOCKET TOKEN + ENDPOINT ==============
 
 @api_router.get("/ws-token")
@@ -1520,10 +1068,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 from routes import auth as _auth_routes  # noqa: E402
 from routes import exchange as _exchange_routes  # noqa: E402
 from routes import scheduler as _scheduler_routes  # noqa: E402
+from routes import profile as _profile_routes  # noqa: E402
+from routes import notifications as _notif_routes  # noqa: E402
+from routes import payments as _payment_routes  # noqa: E402
+from routes import signals as _signal_routes  # noqa: E402
+from routes import engine as _engine_routes  # noqa: E402
+from routes import dungeon as _dungeon_routes  # noqa: E402
 
-api_router.include_router(_auth_routes.router)
-api_router.include_router(_exchange_routes.router)
-api_router.include_router(_scheduler_routes.router)
+for _r in (_auth_routes, _exchange_routes, _scheduler_routes, _profile_routes,
+           _notif_routes, _payment_routes, _signal_routes, _engine_routes, _dungeon_routes):
+    api_router.include_router(_r.router)
 
 app.include_router(api_router)
 
