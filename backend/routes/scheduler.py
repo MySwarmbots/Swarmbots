@@ -8,12 +8,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 
 import swarm_dungeon as sd
-from server import (
-    db,
-    ws_manager,
-    get_current_user,
-    get_auto_exec_config,
-    auto_execute_prediction,
+from server import db, ws_manager, get_current_user
+from services.auto_exec import get_auto_exec_config, auto_execute_prediction
+from services.scheduler import (
     _get_telegram_users,
     _broadcast_to_telegram,
     _format_prediction_telegram,

@@ -3,7 +3,8 @@ import asyncio
 
 from fastapi import APIRouter
 
-from server import db, check_pending_signals
+from server import db
+from services.signal_tracker import check_pending_signals
 
 router = APIRouter()
 
