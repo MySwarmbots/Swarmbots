@@ -937,14 +937,24 @@ async def record_prediction_with_price(run: dict):
 
 
 async def check_pending_signals():
-    """Check signals older than 15 min and record exit price + accuracy."""
+    """Check signals older than 15 min and record exit price + accuracy. Batched by symbol."""
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
     pending = await db.signal_accuracy.find(
         {"checked": False, "created_at": {"$lt": cutoff}}
-    ).to_list(100)
+    ).limit(50).to_list(50)
 
+    if not pending:
+        return
+
+    # Batch: fetch price once per unique symbol
+    unique_symbols = list(set(s["symbol"] for s in pending))
+    price_cache = {}
+    for sym in unique_symbols:
+        price_cache[sym] = await _snapshot_price(sym)
+
+    # Update all pending signals using cached prices
     for sig in pending:
-        exit_price = await _snapshot_price(sig["symbol"])
+        exit_price = price_cache.get(sig["symbol"], 0)
         if exit_price <= 0:
             continue
         entry = sig["entry_price"]
@@ -969,7 +979,8 @@ async def check_pending_signals():
 @api_router.get("/signals/accuracy")
 async def get_signal_accuracy(limit: int = 100):
     """Return signal accuracy history and aggregate stats."""
-    await check_pending_signals()
+    # Run check in background — don't block the response
+    asyncio.create_task(check_pending_signals())
 
     signals = await db.signal_accuracy.find(
         {"checked": True}, {"_id": 0}
@@ -1243,6 +1254,7 @@ auto_exec_defaults = {
     "max_trade_usd": 0.50,
     "min_confidence": 0.60,
     "allowed_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+    "allowed_directions": ["long_bias", "short_bias"],
     "market_type": "spot",
     "cooldown_seconds": 300,
     "last_trade_ts": None,
@@ -1273,6 +1285,7 @@ class AutoExecConfigUpdate(BaseModel):
     max_trade_usd: Optional[float] = None
     min_confidence: Optional[float] = None
     allowed_symbols: Optional[List[str]] = None
+    allowed_directions: Optional[List[str]] = None
     market_type: Optional[str] = None
     cooldown_seconds: Optional[int] = None
     scheduler_enabled: Optional[bool] = None
@@ -1319,6 +1332,8 @@ def _check_exec_preconditions(config: dict, prediction: dict) -> str:
 
     if direction == "wait":
         return "prediction_is_wait"
+    if direction not in config.get("allowed_directions", ["long_bias", "short_bias"]):
+        return f"direction_{direction}_not_allowed"
     if confidence < config.get("min_confidence", 0.60):
         return f"confidence_{confidence}_below_threshold_{config['min_confidence']}"
     if ccxt_symbol not in config.get("allowed_symbols", []):

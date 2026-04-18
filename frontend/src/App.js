@@ -1660,6 +1660,10 @@ function DungeonPage() {
               <p className="font-mono text-[10px] text-[#555555]">SYMBOLS</p>
               <p className="font-mono text-[10px] text-[#8A8A8A]">{autoExec?.allowed_symbols?.join(", ")}</p>
             </div>
+            <div>
+              <p className="font-mono text-[10px] text-[#555555]">DIRECTIONS</p>
+              <p className="font-mono text-sm text-white">{(autoExec?.allowed_directions || []).map(d => d === 'long_bias' ? 'LONG' : 'SHORT').join(", ") || "ALL"}</p>
+            </div>
           </div>
         </Card>
 
