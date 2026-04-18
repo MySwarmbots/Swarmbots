@@ -3,10 +3,10 @@ MiroFish Space Dungeon Swarm System
 - 24 autonomous robot agents with unique personalities, roles, and memories
 - Debate engine for swarm market reasoning
 - Prediction from aggregated swarm votes
-- Rollout stage management (shadow → canary → phase1 → phase2 → full)
+- Rollout stage management (shadow -> canary -> phase1 -> phase2 -> full)
 """
+import secrets
 import random
-import json
 from datetime import datetime, timezone
 from typing import Optional
 from collections import deque
@@ -21,6 +21,51 @@ AGENT_COLORS = ["#00FF66", "#FF3B30", "#FFCC00", "#002FA7", "#FF6B00", "#00BFFF"
 
 SWARM_AGENT_COUNT = 24
 ROLLOUT_STAGES = ["shadow", "canary", "phase1", "phase2", "full"]
+
+MEMORY_OPTIONS = [
+    "Noticed divergence between RSI and price action",
+    "Observed whale accumulation patterns",
+    "Tracked funding rate anomalies",
+    "Studied liquidation cascade triggers",
+    "Analyzed order book depth imbalances",
+    "Monitored social sentiment spikes",
+]
+
+PERSONALITY_WEIGHTS = {
+    "aggressive": {"bullish": 0.55, "bearish": 0.25, "neutral": 0.20},
+    "cautious": {"bullish": 0.25, "bearish": 0.35, "neutral": 0.40},
+    "curious": {"bullish": 0.35, "bearish": 0.30, "neutral": 0.35},
+    "skeptical": {"bullish": 0.20, "bearish": 0.45, "neutral": 0.35},
+    "disciplined": {"bullish": 0.33, "bearish": 0.33, "neutral": 0.34},
+    "chaotic-good": {"bullish": 0.40, "bearish": 0.40, "neutral": 0.20},
+}
+
+RATIONALE_TEMPLATES = {
+    "Scalper": [
+        "Quick momentum read on {sym} {tf}: seeing {bias} micro-structure",
+        "Order flow delta tilting {bias} on {sym} — typical scalp setup",
+    ],
+    "Risk Warden": [
+        "Risk assessment for {sym}: volatility suggests {bias} exposure is {risk_note}",
+        "Drawdown limits check — {bias} stance aligns with risk parameters",
+    ],
+    "Trend Hunter": [
+        "Multi-TF trend analysis on {sym}: {tf} shows {bias} continuation pattern",
+        "EMA ribbon on {sym} confirms {bias} directional bias",
+    ],
+    "Sentiment Miner": [
+        "Social feeds and funding rates suggest {bias} sentiment for {sym}",
+        "Crowd psychology indicators pointing {bias} on {sym} {tf}",
+    ],
+    "Breakout Scout": [
+        "Compression zone detected on {sym} {tf}: {bias} breakout imminent",
+        "Volume profile suggests {bias} breakout from current range",
+    ],
+    "Orderflow Mechanic": [
+        "Institutional order flow on {sym} skewing {bias} — whale footprint detected",
+        "Bid/ask imbalance on {sym}: {bias} pressure building",
+    ],
+}
 
 # ============== IN-MEMORY STATE ==============
 
@@ -49,192 +94,182 @@ STAGE_CAPITAL = {
     "full": 1500.0,
 }
 
+# ============== HELPERS ==============
+
+
+def _sec_randint(low, high):
+    """Secure random integer in [low, high] inclusive."""
+    return secrets.randbelow(high - low + 1) + low
+
+
+def _sec_uniform(low, high):
+    """Secure random float in [low, high)."""
+    return low + (secrets.randbelow(10000) / 10000) * (high - low)
+
+
+def _sec_choice(items):
+    """Secure random choice from a list."""
+    return secrets.choice(items)
+
+
+def _clamp(value, lo, hi):
+    return max(lo, min(hi, value))
+
+
+def _build_agent_memories(i, role, personality, sector):
+    return [
+        f"Watched BTC volatility cycle {i % 5}",
+        f"Prefers {role.lower()} style decisions",
+        f"Personality bias: {personality}",
+        f"Last sector assignment: {sector}",
+        _sec_choice(MEMORY_OPTIONS),
+    ]
+
+
+def _create_agent(i):
+    role = ROLES[i % len(ROLES)]
+    personality = PERSONALITIES[i % len(PERSONALITIES)]
+    color = AGENT_COLORS[i % len(AGENT_COLORS)]
+    sector = SECTORS[i % len(SECTORS)]
+
+    return {
+        "agent_id": f"bot_{i+1:03d}",
+        "name": f"{role.split()[0]}-{i+1:02d}",
+        "role": role,
+        "personality": personality,
+        "color": color,
+        "energy": _sec_randint(60, 100),
+        "status": _sec_choice(STATUSES),
+        "sector": sector,
+        "memory": _build_agent_memories(i, role, personality, sector),
+        "win_rate": round(_sec_uniform(0.42, 0.72), 2),
+        "total_predictions": _sec_randint(50, 300),
+        "position": {
+            "x": round(_sec_uniform(-8, 8), 2),
+            "y": round(_sec_uniform(-3, 3), 2),
+            "z": round(_sec_uniform(-8, 8), 2),
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _update_agent_state(agent):
+    """Update dynamic fields on an existing agent (energy, status, position drift)."""
+    agent["energy"] = _clamp(agent["energy"] + _sec_randint(-5, 8), 20, 100)
+
+    if _sec_uniform(0, 1) < 0.3:
+        agent["status"] = _sec_choice(STATUSES)
+    if _sec_uniform(0, 1) < 0.15:
+        agent["sector"] = _sec_choice(SECTORS)
+
+    agent["position"]["x"] = _clamp(agent["position"]["x"] + _sec_uniform(-0.5, 0.5), -10, 10)
+    agent["position"]["y"] = _clamp(agent["position"]["y"] + _sec_uniform(-0.3, 0.3), -5, 5)
+    agent["position"]["z"] = _clamp(agent["position"]["z"] + _sec_uniform(-0.5, 0.5), -10, 10)
+
+
 # ============== AGENT GENERATION ==============
 
 def generate_agents():
     global agents_cache
     if agents_cache:
-        # Update dynamic fields only
-        for a in agents_cache:
-            a["energy"] = min(100, max(20, a["energy"] + random.randint(-5, 8)))
-            a["status"] = random.choice(STATUSES) if random.random() < 0.3 else a["status"]
-            a["sector"] = random.choice(SECTORS) if random.random() < 0.15 else a["sector"]
-            # Position drift for 3D visualization
-            a["position"]["x"] += random.uniform(-0.5, 0.5)
-            a["position"]["y"] += random.uniform(-0.3, 0.3)
-            a["position"]["z"] += random.uniform(-0.5, 0.5)
-            a["position"]["x"] = max(-10, min(10, a["position"]["x"]))
-            a["position"]["y"] = max(-5, min(5, a["position"]["y"]))
-            a["position"]["z"] = max(-10, min(10, a["position"]["z"]))
+        for agent in agents_cache:
+            _update_agent_state(agent)
         return agents_cache
 
-    agents = []
-    for i in range(SWARM_AGENT_COUNT):
-        agent_id = f"bot_{i+1:03d}"
-        role = ROLES[i % len(ROLES)]
-        personality = PERSONALITIES[i % len(PERSONALITIES)]
-        color = AGENT_COLORS[i % len(AGENT_COLORS)]
-        sector = SECTORS[i % len(SECTORS)]
-
-        memories = [
-            f"Watched BTC volatility cycle {i % 5}",
-            f"Prefers {role.lower()} style decisions",
-            f"Personality bias: {personality}",
-            f"Last sector assignment: {sector}",
-            random.choice([
-                "Noticed divergence between RSI and price action",
-                "Observed whale accumulation patterns",
-                "Tracked funding rate anomalies",
-                "Studied liquidation cascade triggers",
-                "Analyzed order book depth imbalances",
-                "Monitored social sentiment spikes",
-            ])
-        ]
-
-        agents.append({
-            "agent_id": agent_id,
-            "name": f"{role.split()[0]}-{i+1:02d}",
-            "role": role,
-            "personality": personality,
-            "color": color,
-            "energy": random.randint(60, 100),
-            "status": random.choice(STATUSES),
-            "sector": sector,
-            "memory": memories,
-            "win_rate": round(random.uniform(0.42, 0.72), 2),
-            "total_predictions": random.randint(50, 300),
-            "position": {
-                "x": random.uniform(-8, 8),
-                "y": random.uniform(-3, 3),
-                "z": random.uniform(-8, 8),
-            },
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-    agents_cache = agents
-    return agents
+    agents_cache = [_create_agent(i) for i in range(SWARM_AGENT_COUNT)]
+    return agents_cache
 
 
 def get_agent(agent_id: str):
-    agents = generate_agents()
-    for a in agents:
-        if a["agent_id"] == agent_id:
-            return a
+    for agent in generate_agents():
+        if agent["agent_id"] == agent_id:
+            return agent
     return None
 
 
 # ============== DEBATE ENGINE ==============
+
+def _personality_bias(personality: str) -> str:
+    w = PERSONALITY_WEIGHTS.get(personality, {"bullish": 0.33, "bearish": 0.33, "neutral": 0.34})
+    return random.choices(list(w.keys()), weights=list(w.values()))[0]
+
+
+def _generate_rationale(agent, symbol, timeframe, bias):
+    templates = RATIONALE_TEMPLATES.get(agent["role"], ["{bias} signal on {sym}"])
+    template = _sec_choice(templates)
+    risk_note = "acceptable" if bias != "neutral" else "safest"
+    return template.format(sym=symbol, tf=timeframe, bias=bias, risk_note=risk_note)
+
 
 def run_debate(symbol: str = "BTCUSDT", timeframe: str = "15m"):
     agents = generate_agents()
     debaters = random.sample(agents, min(12, len(agents)))
     stances = []
 
-    for a in debaters:
-        bias = _personality_bias(a["personality"])
-        confidence = round(random.uniform(0.45, 0.92), 2)
-
-        # Role-based reasoning
-        rationale = _generate_rationale(a, symbol, timeframe, bias)
-
+    for agent in debaters:
+        bias = _personality_bias(agent["personality"])
         stances.append({
-            "agent_id": a["agent_id"],
-            "name": a["name"],
-            "role": a["role"],
-            "personality": a["personality"],
-            "color": a["color"],
+            "agent_id": agent["agent_id"],
+            "name": agent["name"],
+            "role": agent["role"],
+            "personality": agent["personality"],
+            "color": agent["color"],
             "bias": bias,
-            "confidence": confidence,
-            "rationale": rationale,
+            "confidence": round(_sec_uniform(0.45, 0.92), 2),
+            "rationale": _generate_rationale(agent, symbol, timeframe, bias),
         })
 
-    debate_entry = {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "stances": stances,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    debate_log.appendleft(debate_entry)
+    debate_log.appendleft({
+        "symbol": symbol, "timeframe": timeframe,
+        "stances": stances, "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
     return stances
-
-
-def _personality_bias(personality: str) -> str:
-    weights = {
-        "aggressive": {"bullish": 0.55, "bearish": 0.25, "neutral": 0.20},
-        "cautious": {"bullish": 0.25, "bearish": 0.35, "neutral": 0.40},
-        "curious": {"bullish": 0.35, "bearish": 0.30, "neutral": 0.35},
-        "skeptical": {"bullish": 0.20, "bearish": 0.45, "neutral": 0.35},
-        "disciplined": {"bullish": 0.33, "bearish": 0.33, "neutral": 0.34},
-        "chaotic-good": {"bullish": 0.40, "bearish": 0.40, "neutral": 0.20},
-    }
-    w = weights.get(personality, {"bullish": 0.33, "bearish": 0.33, "neutral": 0.34})
-    return random.choices(list(w.keys()), weights=list(w.values()))[0]
-
-
-def _generate_rationale(agent, symbol, timeframe, bias):
-    templates = {
-        "Scalper": [
-            f"Quick momentum read on {symbol} {timeframe}: seeing {bias} micro-structure",
-            f"Order flow delta tilting {bias} on {symbol} — typical scalp setup",
-        ],
-        "Risk Warden": [
-            f"Risk assessment for {symbol}: volatility suggests {bias} exposure is {'acceptable' if bias != 'neutral' else 'safest'}",
-            f"Drawdown limits check — {bias} stance aligns with risk parameters",
-        ],
-        "Trend Hunter": [
-            f"Multi-TF trend analysis on {symbol}: {timeframe} shows {bias} continuation pattern",
-            f"EMA ribbon on {symbol} confirms {bias} directional bias",
-        ],
-        "Sentiment Miner": [
-            f"Social feeds and funding rates suggest {bias} sentiment for {symbol}",
-            f"Crowd psychology indicators pointing {bias} on {symbol} {timeframe}",
-        ],
-        "Breakout Scout": [
-            f"Compression zone detected on {symbol} {timeframe}: {bias} breakout imminent",
-            f"Volume profile suggests {bias} breakout from current range",
-        ],
-        "Orderflow Mechanic": [
-            f"Institutional order flow on {symbol} skewing {bias} — whale footprint detected",
-            f"Bid/ask imbalance on {symbol}: {bias} pressure building",
-        ],
-    }
-    options = templates.get(agent["role"], [f"{agent['role']} sees {bias} on {symbol}"])
-    return random.choice(options)
 
 
 # ============== PREDICTION ==============
 
-def aggregate_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m"):
-    debate = run_debate(symbol, timeframe)
+def _tally_votes(debate):
     bull = sum(x["confidence"] for x in debate if x["bias"] == "bullish")
     bear = sum(x["confidence"] for x in debate if x["bias"] == "bearish")
     neutral = sum(x["confidence"] for x in debate if x["bias"] == "neutral")
+    return bull, bear, neutral
+
+
+def _determine_direction(bull, bear, neutral):
+    if bull > bear and bull > neutral:
+        return "long_bias", bull
+    if bear > bull and bear > neutral:
+        return "short_bias", bear
+    return "wait", neutral
+
+
+def _count_votes(debate):
+    return {
+        "bullish_count": sum(1 for x in debate if x["bias"] == "bullish"),
+        "bearish_count": sum(1 for x in debate if x["bias"] == "bearish"),
+        "neutral_count": sum(1 for x in debate if x["bias"] == "neutral"),
+    }
+
+
+def aggregate_prediction(symbol: str = "BTCUSDT", timeframe: str = "15m"):
+    debate = run_debate(symbol, timeframe)
+    bull, bear, neutral = _tally_votes(debate)
     total_score = bull + bear + neutral
 
-    if bull > bear and bull > neutral:
-        direction = "long_bias"
-        confidence = round(bull / max(total_score, 1e-9), 3)
-    elif bear > bull and bear > neutral:
-        direction = "short_bias"
-        confidence = round(bear / max(total_score, 1e-9), 3)
-    else:
-        direction = "wait"
-        confidence = round(neutral / max(total_score, 1e-9), 3)
+    direction, winning_score = _determine_direction(bull, bear, neutral)
+    confidence = round(winning_score / max(total_score, 1e-9), 3)
+
+    votes = {
+        "bullish_score": round(bull, 3),
+        "bearish_score": round(bear, 3),
+        "neutral_score": round(neutral, 3),
+        **_count_votes(debate),
+    }
 
     result = {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "direction": direction,
-        "confidence": confidence,
-        "votes": {
-            "bullish_score": round(bull, 3),
-            "bearish_score": round(bear, 3),
-            "neutral_score": round(neutral, 3),
-            "bullish_count": sum(1 for x in debate if x["bias"] == "bullish"),
-            "bearish_count": sum(1 for x in debate if x["bias"] == "bearish"),
-            "neutral_count": sum(1 for x in debate if x["bias"] == "neutral"),
-        },
-        "debate": debate,
+        "symbol": symbol, "timeframe": timeframe,
+        "direction": direction, "confidence": confidence,
+        "votes": votes, "debate": debate,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     prediction_log.appendleft(result)
@@ -278,8 +313,7 @@ def record_validation(passed: bool, reason: str = ""):
     return set_rollout_state(**updates)
 
 def record_anomaly(message: str = "anomaly_detected"):
-    updates = {"anomaly_count": rollout_state["anomaly_count"] + 1, "reason": message, "blocked": True, "enabled": False}
-    return set_rollout_state(**updates)
+    return set_rollout_state(anomaly_count=rollout_state["anomaly_count"] + 1, reason=message, blocked=True, enabled=False)
 
 def can_promote():
     if rollout_state["blocked"]:

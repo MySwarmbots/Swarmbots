@@ -11,7 +11,6 @@ import bcrypt
 import jwt as pyjwt
 import secrets
 import json
-import random
 import asyncio
 import httpx
 import resend
@@ -620,10 +619,11 @@ def generate_performance_history(days=30):
     cumulative_pnl = 0
     for i in range(days):
         day = (datetime.now(timezone.utc) - timedelta(days=days - i)).strftime("%Y-%m-%d")
-        daily_pnl = round(random.uniform(-150, 300), 2)
+        daily_pnl = round(secrets.randbelow(4501) / 10 - 150, 2)
         cumulative_pnl += daily_pnl
-        trades = random.randint(5, 40)
-        wins = random.randint(int(trades * 0.3), min(trades, int(trades * 0.8)))
+        trades = secrets.randbelow(36) + 5
+        wins = secrets.randbelow(max(1, int(trades * 0.5))) + int(trades * 0.3)
+        wins = min(wins, trades)
         history.append({
             "date": day,
             "daily_pnl": round(daily_pnl, 2),
@@ -631,7 +631,7 @@ def generate_performance_history(days=30):
             "trades": trades,
             "wins": wins,
             "win_rate": round(wins / max(trades, 1) * 100, 1),
-            "volume": round(random.uniform(5000, 50000), 2)
+            "volume": round(secrets.randbelow(45001) + 5000 + secrets.randbelow(100) / 100, 2)
         })
     return history
 
@@ -683,7 +683,7 @@ async def get_portfolio_summary(request: Request):
         "by_exchange": exchange_data,
         "portfolio_history": portfolio_history,
         "total_agents": len(agents),
-        "total_pnl": round(sum(a.get("pnl", 0) for a in agents), 2)
+        "total_pnl": round(sum(ag.get("pnl", 0) for ag in agents), 2)
     }
 
 @api_router.post("/agents")
@@ -695,7 +695,7 @@ async def create_agent(data: AgentCreate, request: Request):
         "name": data.name, "strategy": data.strategy,
         "exchange": data.exchange, "trading_pairs": data.trading_pairs,
         "risk_level": data.risk_level, "status": "active",
-        "pnl": round(secrets.randbelow(2501) - 500 + random.random(), 2),
+        "pnl": round(secrets.randbelow(2501) - 500 + secrets.randbelow(100) / 100, 2),
         "win_rate": round(0.45 + (secrets.randbelow(31) / 100), 2),
         "total_trades": secrets.randbelow(491) + 10,
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -1369,6 +1369,7 @@ async def _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, dire
     if quantity <= 0:
         return {"executed": False, "reason": "quantity_too_small"}
 
+    order = None
     try:
         order = await bgx.create_order(
             ccxt_symbol, side, "market", quantity,

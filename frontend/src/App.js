@@ -479,8 +479,8 @@ function DashboardPage() {
 
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {statCards.map((stat, i) => (
-            <Card key={i} className="bg-[#111111] border-[#222222] p-3 rounded-none hover:border-[#333333] transition-all" data-testid={`stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>
+          {statCards.map((stat) => (
+            <Card key={stat.label} className="bg-[#111111] border-[#222222] p-3 rounded-none hover:border-[#333333] transition-all" data-testid={`stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>
               <stat.icon size={14} strokeWidth={1.5} className="text-[#555555] mb-1" />
               <p className={`font-mono text-lg font-medium tabular-nums ${stat.color}`}>{stat.value}</p>
               <p className="font-mono text-[9px] tracking-[0.15em] text-[#555555] mt-1">{stat.label}</p>
@@ -661,7 +661,7 @@ function AgentsPage() {
                 <div><label className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">Pairs</label>
                   <div className="flex gap-2 mt-1"><Input value={pairInput} onChange={(e) => setPairInput(e.target.value)} onKeyPress={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (pairInput) { setNewAgent({...newAgent, trading_pairs: [...newAgent.trading_pairs, pairInput.toUpperCase()]}); setPairInput(""); } }}} placeholder="BTC/USDT" className="bg-[#0A0A0A] border-[#333333] rounded-none text-white" data-testid="agent-pair-input" />
                     <Button onClick={() => { if (pairInput) { setNewAgent({...newAgent, trading_pairs: [...newAgent.trading_pairs, pairInput.toUpperCase()]}); setPairInput(""); }}} className="bg-[#1A1A1A] text-white hover:bg-[#333333] rounded-none">ADD</Button></div>
-                  <div className="flex flex-wrap gap-1 mt-2">{newAgent.trading_pairs.map((p, i) => (<Badge key={i} variant="outline" className="bg-[#1A1A1A] border-[#333333] text-white rounded-none cursor-pointer" onClick={() => setNewAgent({...newAgent, trading_pairs: newAgent.trading_pairs.filter((_, idx) => idx !== i)})}>{p} x</Badge>))}</div></div>
+                  <div className="flex flex-wrap gap-1 mt-2">{newAgent.trading_pairs.map((p) => (<Badge key={p} variant="outline" className="bg-[#1A1A1A] border-[#333333] text-white rounded-none cursor-pointer" onClick={() => setNewAgent({...newAgent, trading_pairs: newAgent.trading_pairs.filter((x) => x !== p)})}>{p} x</Badge>))}</div></div>
                 <div><label className="font-mono text-xs tracking-[0.2em] text-[#8A8A8A] uppercase">Risk</label>
                   <Select value={newAgent.risk_level} onValueChange={(v) => setNewAgent({...newAgent, risk_level: v})}>
                     <SelectTrigger className="mt-1 bg-[#0A0A0A] border-[#333333] rounded-none text-white" data-testid="agent-risk-select"><SelectValue /></SelectTrigger>
@@ -686,7 +686,7 @@ function AgentsPage() {
                   <div><p className="font-mono text-[10px] text-[#555555]">WIN RATE</p><p className="font-mono text-sm tabular-nums text-white">{(agent.win_rate * 100).toFixed(0)}%</p></div>
                   <div><p className="font-mono text-[10px] text-[#555555]">TRADES</p><p className="font-mono text-sm tabular-nums text-white">{agent.total_trades}</p></div>
                 </div>
-                <div className="flex flex-wrap gap-1 mb-3">{agent.trading_pairs.map((p, i) => (<Badge key={i} variant="outline" className="bg-transparent border-[#333333] text-[#8A8A8A] rounded-none text-[10px]">{p}</Badge>))}</div>
+                <div className="flex flex-wrap gap-1 mb-3">{agent.trading_pairs.map((p) => (<Badge key={p} variant="outline" className="bg-transparent border-[#333333] text-[#8A8A8A] rounded-none text-[10px]">{p}</Badge>))}</div>
                 <div className="flex items-center justify-between pt-3 border-t border-[#222222]">
                   <Button variant="ghost" size="sm" onClick={() => toggleAgent(agent.id)} className="text-[#8A8A8A] hover:text-white" data-testid={`toggle-agent-${agent.id}`}>
                     {agent.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
@@ -965,7 +965,7 @@ function ValidationPage() {
               </tr></thead>
               <tbody>
                 {runs.map((run, i) => (
-                  <tr key={i} className="border-t border-[#1A1A1A] hover:bg-[#151515] transition-colors" data-testid={`validation-run-${i}`}>
+                  <tr key={`${run.ts}-${run.symbol}`} className="border-t border-[#1A1A1A] hover:bg-[#151515] transition-colors" data-testid={`validation-run-${i}`}>
                     <td className="font-mono text-xs text-[#8A8A8A] p-3">{new Date(run.ts).toLocaleTimeString()}</td>
                     <td className="font-mono text-xs text-white p-3">{run.symbol}</td>
                     <td className="font-mono text-xs text-[#8A8A8A] p-3">{run.exchange}</td>
@@ -1009,7 +1009,7 @@ function InsightsPage() {
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
             {["Analyze BTC market conditions", "Best strategy for volatile markets?", "Risk factors for ETH swing trading", "DeFi arbitrage opportunities"].map((p, i) => (
-              <button key={i} onClick={() => setPrompt(p)} className="font-mono text-[10px] text-[#555555] hover:text-white border border-[#333333] px-2 py-1 transition-colors" data-testid={`sample-prompt-${i}`}>{p}</button>
+              <button key={p} onClick={() => setPrompt(p)} className="font-mono text-[10px] text-[#555555] hover:text-white border border-[#333333] px-2 py-1 transition-colors" data-testid={`sample-prompt-${i}`}>{p}</button>
             ))}
           </div>
         </Card>
@@ -1017,7 +1017,7 @@ function InsightsPage() {
           {insights.length === 0 ? (
             <Card className="terminal-bg p-8 rounded-none text-center"><Terminal size={48} className="mx-auto text-[#333333] mb-4" /><p className="font-mono text-sm text-[#8A8A8A]">AWAITING QUERY</p></Card>
           ) : insights.map((item, i) => (
-            <Card key={i} className="terminal-bg p-4 rounded-none" data-testid={`insight-${i}`}>
+            <Card key={item.timestamp} className="terminal-bg p-4 rounded-none" data-testid={`insight-${i}`}>
               <div className="flex items-center gap-2 mb-2"><ChevronRight size={12} className="text-[#00FF66]" /><span className="font-mono text-xs text-[#00FF66]">{item.prompt}</span></div>
               <pre className="font-mono text-sm text-[#E0E0E0] whitespace-pre-wrap leading-relaxed">{item.response}</pre>
               <p className="font-mono text-[10px] text-[#555555] mt-2">{new Date(item.timestamp).toLocaleString()}</p>
@@ -1109,7 +1109,7 @@ function BillingPage() {
                 {id === 'pro' && <Badge className="bg-white text-black rounded-none mb-4">POPULAR</Badge>}
                 <h3 className="font-heading text-xl font-bold text-white">{plan.name}</h3>
                 <p className="font-mono text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(plan.amount)}<span className="text-sm text-[#8A8A8A]">/mo</span></p>
-                <ul className="mt-4 space-y-2">{plan.features.map((f, i) => (<li key={i} className="flex items-center gap-2 font-mono text-xs text-[#8A8A8A]"><CheckCircle size={12} className="text-[#00FF66]" />{f}</li>))}</ul>
+                <ul className="mt-4 space-y-2">{plan.features.map((f) => (<li key={f} className="flex items-center gap-2 font-mono text-xs text-[#8A8A8A]"><CheckCircle size={12} className="text-[#00FF66]" />{f}</li>))}</ul>
                 <Button onClick={() => handleCheckout(id)} disabled={checkoutLoading === id}
                   className={`w-full mt-6 rounded-none ${id === 'pro' ? 'bg-white text-black hover:bg-gray-200' : 'bg-transparent border border-[#333333] text-white hover:bg-white hover:text-black'}`}
                   data-testid={`checkout-${id}`}>{checkoutLoading === id ? "PROCESSING..." : "SUBSCRIBE"}</Button>
@@ -1826,8 +1826,8 @@ function DungeonPage() {
                 </div>
                 <div className="terminal-bg p-2">
                   <p className="font-mono text-[10px] text-[#555555] mb-1">MEMORY LOG:</p>
-                  {selectedBot.memory.map((m, i) => (
-                    <p key={i} className="font-mono text-[10px] text-[#8A8A8A]">{'>'} {m}</p>
+                  {selectedBot.memory.map((m) => (
+                    <p key={m} className="font-mono text-[10px] text-[#8A8A8A]">{'>'} {m}</p>
                   ))}
                 </div>
               </div>
@@ -1846,8 +1846,8 @@ function DungeonPage() {
                 <div className="p-6 text-center"><Terminal size={32} className="mx-auto text-[#333333] mb-2" /><p className="font-mono text-xs text-[#8A8A8A]">RUN A PREDICTION TO SEE THE DEBATE</p></div>
               ) : (
                 <div className="p-2 space-y-2">
-                  {debate.map((d, i) => (
-                    <div key={i} className="border border-[#1A1A1A] p-2 hover:bg-[#151515] transition-colors" data-testid={`debate-${i}`}>
+                  {debate.map((d) => (
+                    <div key={d.agent_id} className="border border-[#1A1A1A] p-2 hover:bg-[#151515] transition-colors" data-testid={`debate-${d.agent_id}`}>
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
                           <div className="w-4 h-4 flex items-center justify-center" style={{ color: d.color }}><Bot size={10} /></div>
@@ -1962,7 +1962,7 @@ function EnginePage() {
               <BarChart data={biasData} layout="vertical">
                 <XAxis type="number" hide domain={[0, 100]} />
                 <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#8A8A8A', fontFamily: 'IBM Plex Mono' }} width={35} />
-                <Bar dataKey="value">{biasData.map((e, i) => <Cell key={i} fill={e.fill} />)}</Bar>
+                <Bar dataKey="value">{biasData.map((e) => <Cell key={e.name} fill={e.fill} />)}</Bar>
               </BarChart>
             </ResponsiveContainer>
           </Card>
