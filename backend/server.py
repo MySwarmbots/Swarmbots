@@ -382,147 +382,6 @@ async def get_validation_summary():
     passed = sum(1 for r in runs if r.get("passed"))
     return {"total_runs": total, "passed": passed, "failed": total - passed, "gate": await get_gate_state()}
 
-# ============== AUTH ROUTES ==============
-
-@api_router.post("/auth/register")
-async def register(data: UserRegister, response: Response):
-    email = data.email.lower().strip()
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user_doc = {
-        "email": email, "password_hash": hash_password(data.password),
-        "name": data.name, "role": "user",
-        "telegram_chat_id": None, "email_notifications": True, "telegram_notifications": True,
-        "created_at": datetime.now(timezone.utc)
-    }
-    result = await db.users.insert_one(user_doc)
-    user_id = str(result.inserted_id)
-    access_token = create_access_token(user_id, email)
-    refresh_token = create_refresh_token(user_id)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    return {"id": user_id, "email": email, "name": data.name, "role": "user"}
-
-@api_router.post("/auth/login")
-async def login(data: UserLogin, response: Response, request: Request):
-    email = data.email.lower().strip()
-    # Brute force check
-    identifier = f"{request.client.host}:{email}"
-    attempt = await db.login_attempts.find_one({"identifier": identifier})
-    if attempt and attempt.get("count", 0) >= 5:
-        last_attempt = ensure_utc(attempt.get("last_attempt")) or datetime.min.replace(tzinfo=timezone.utc)
-        lockout_until = last_attempt + timedelta(minutes=15)
-        if datetime.now(timezone.utc) < lockout_until:
-            raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
-        else:
-            await db.login_attempts.delete_one({"identifier": identifier})
-
-    user = await db.users.find_one({"email": email})
-    if not user or not verify_password(data.password, user["password_hash"]):
-        # Increment failed attempts
-        await db.login_attempts.update_one(
-            {"identifier": identifier},
-            {"$inc": {"count": 1}, "$set": {"last_attempt": datetime.now(timezone.utc)}},
-            upsert=True
-        )
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    # Clear failed attempts on success
-    await db.login_attempts.delete_one({"identifier": identifier})
-    user_id = str(user["_id"])
-    access_token = create_access_token(user_id, email)
-    refresh_token = create_refresh_token(user_id)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
-    return {"id": user_id, "email": email, "name": user["name"], "role": user.get("role", "user")}
-
-@api_router.post("/auth/logout")
-async def logout(response: Response):
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
-    return {"message": "Logged out successfully"}
-
-@api_router.get("/auth/me")
-async def get_me(request: Request):
-    user = await get_current_user(request)
-    return user
-
-@api_router.post("/auth/refresh")
-async def refresh_token_endpoint(request: Request, response: Response):
-    token = request.cookies.get("refresh_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="No refresh token")
-    try:
-        payload = pyjwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        access_token = create_access_token(str(user["_id"]), user["email"])
-        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
-        return {"message": "Token refreshed"}
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-
-# ============== PASSWORD RESET ==============
-
-@api_router.post("/auth/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest):
-    email = data.email.lower().strip()
-    user = await db.users.find_one({"email": email})
-    if not user:
-        # Don't reveal if user exists
-        return {"message": "If an account exists with this email, a reset link has been sent."}
-
-    token = secrets.token_urlsafe(32)
-    await db.password_reset_tokens.insert_one({
-        "token": token,
-        "user_id": str(user["_id"]),
-        "email": email,
-        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
-        "used": False,
-        "created_at": datetime.now(timezone.utc)
-    })
-
-    reset_link = f"/reset-password?token={token}"
-    logger.info(f"[PASSWORD RESET] Email: {email} | Reset link: {reset_link}")
-
-    # Send email with reset link
-    reset_html = build_email_html(
-        "Password Reset Request",
-        f"Use this token to reset your password:<br><br>"
-        f"<code style='background:#0A0A0A;padding:8px 12px;color:#00FF66;font-size:13px;display:inline-block;word-break:break-all;'>{token}</code><br><br>"
-        f"This token expires in 1 hour. If you did not request this reset, ignore this email.",
-        "warning"
-    )
-    await send_email(email, "[MiroFish] Password Reset", reset_html)
-
-    # Also send via Telegram if connected
-    if user.get("telegram_chat_id"):
-        await send_telegram_message(
-            user["telegram_chat_id"],
-            f"🔑 <b>Password Reset Request</b>\nUse this token to reset your password:\n<code>{token}</code>"
-        )
-
-    return {"message": "If an account exists with this email, a reset link has been sent.", "reset_token": token}
-
-@api_router.post("/auth/reset-password")
-async def reset_password(data: ResetPasswordRequest):
-    token_doc = await db.password_reset_tokens.find_one({"token": data.token})
-    if not token_doc:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    if token_doc.get("used"):
-        raise HTTPException(status_code=400, detail="Reset token already used")
-    if datetime.now(timezone.utc) > ensure_utc(token_doc["expires_at"]):
-        raise HTTPException(status_code=400, detail="Reset token has expired")
-
-    new_hash = hash_password(data.new_password)
-    await db.users.update_one({"_id": ObjectId(token_doc["user_id"])}, {"$set": {"password_hash": new_hash}})
-    await db.password_reset_tokens.update_one({"token": data.token}, {"$set": {"used": True}})
-
-    return {"message": "Password has been reset successfully"}
 
 # ============== PROFILE / TELEGRAM LINK ==============
 
@@ -1091,109 +950,11 @@ async def root():
 async def health():
     return {"status": "ok", "validation": await get_validation_summary()}
 
-# ============== BITGET EXCHANGE ROUTES ==============
-
-import bitget_exchange as bgx
-
-class OrderRequest(BaseModel):
-    symbol: str
-    side: str  # buy/sell
-    order_type: str = "market"  # market/limit
-    amount: float
-    price: Optional[float] = None
-    market_type: str = "spot"  # spot/futures
-
-class CancelOrderRequest(BaseModel):
-    order_id: str
-    symbol: str
-    market_type: str = "spot"
-
-@api_router.get("/exchange/status")
-async def exchange_status():
-    return {"configured": bgx.is_configured(), "exchange": "bitget"}
-
-@api_router.get("/exchange/ticker/{symbol:path}")
-async def exchange_ticker(symbol: str, market_type: str = "spot"):
-    try:
-        return await bgx.fetch_ticker(symbol, market_type)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@api_router.get("/exchange/tickers")
-async def exchange_tickers(symbols: str = "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT", market_type: str = "spot"):
-    sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    return {"tickers": await bgx.fetch_tickers(sym_list, market_type)}
-
-@api_router.get("/exchange/ohlcv/{symbol:path}")
-async def exchange_ohlcv(symbol: str, timeframe: str = "1h", limit: int = 100, market_type: str = "spot"):
-    try:
-        return {"candles": await bgx.fetch_ohlcv(symbol, timeframe, limit, market_type)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@api_router.get("/exchange/orderbook/{symbol:path}")
-async def exchange_orderbook(symbol: str, limit: int = 20, market_type: str = "spot"):
-    try:
-        return await bgx.fetch_orderbook(symbol, limit, market_type)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@api_router.get("/exchange/balance")
-async def exchange_balance(market_type: str = "spot", request: Request = None):
-    if request:
-        await get_current_user(request)
-    return await bgx.fetch_balance(market_type)
-
-@api_router.get("/exchange/positions")
-async def exchange_positions(request: Request):
-    await get_current_user(request)
-    return {"positions": await bgx.fetch_positions()}
-
-@api_router.post("/exchange/order")
-async def exchange_create_order(data: OrderRequest, request: Request):
-    user = await get_current_user(request)
-    result = await bgx.create_order(
-        data.symbol, data.side, data.order_type, data.amount,
-        data.price, data.market_type
-    )
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    # Log trade + notify
-    await db.trade_history.insert_one({
-        "user_id": user["_id"],
-        "order": result,
-        "market_type": data.market_type,
-        "created_at": datetime.now(timezone.utc)
-    })
-    await ws_manager.send_to_user(user["_id"], {"type": "order_filled", "data": result})
-    await notify_user(user["_id"], "Order Placed",
-        f"{data.side.upper()} {data.amount} {data.symbol} @ {data.order_type}",
-        "success" if result.get("status") != "rejected" else "error")
-    return result
-
-@api_router.post("/exchange/cancel")
-async def exchange_cancel_order(data: CancelOrderRequest, request: Request):
-    await get_current_user(request)
-    result = await bgx.cancel_order(data.order_id, data.symbol, data.market_type)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-@api_router.get("/exchange/open-orders")
-async def exchange_open_orders(symbol: str = None, market_type: str = "spot", request: Request = None):
-    if request:
-        await get_current_user(request)
-    return {"orders": await bgx.fetch_open_orders(symbol, market_type)}
-
-@api_router.get("/exchange/order-history")
-async def exchange_order_history(symbol: str = None, limit: int = 50, market_type: str = "spot", request: Request = None):
-    if request:
-        await get_current_user(request)
-    return {"orders": await bgx.fetch_order_history(symbol, limit, market_type)}
 
 # ============== PROFIT ENGINE ROUTES ==============
 
 import profit_engine as pe
+import bitget_exchange as bgx
 
 class EngineConfigUpdate(BaseModel):
     base_confidence_threshold: Optional[float] = None
@@ -1677,46 +1438,6 @@ async def scheduler_loop():
             logger.error(f"[SCHEDULER] Loop error: {e}")
             await asyncio.sleep(30)
 
-@api_router.get("/dungeon/scheduler/status")
-async def scheduler_status():
-    config = await get_auto_exec_config()
-    runs = await db.scheduler_runs.find({}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
-    return {
-        "scheduler_enabled": config.get("scheduler_enabled", False),
-        "interval_minutes": config.get("scheduler_interval_minutes", 15),
-        "symbols": config.get("scheduler_symbols", []),
-        "recent_runs": runs,
-    }
-
-@api_router.post("/dungeon/scheduler/trigger")
-async def scheduler_trigger_now(symbol: str = "BTCUSDT", request: Request = None):
-    """Manually trigger a scheduled prediction now."""
-    if request:
-        await get_current_user(request)
-    config = await get_auto_exec_config()
-    result = sd.aggregate_prediction(symbol)
-
-    await db.scheduler_runs.insert_one({
-        "symbol": symbol, "direction": result["direction"],
-        "confidence": result["confidence"], "votes": result["votes"],
-        "timestamp": result["timestamp"], "manual": True,
-        "created_at": datetime.now(timezone.utc)
-    })
-
-    await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
-        "symbol": symbol, "direction": result["direction"],
-        "confidence": result["confidence"], "votes": result["votes"],
-    }})
-
-    users_tg = await _get_telegram_users()
-    await _broadcast_to_telegram(users_tg, _format_prediction_telegram(symbol, result))
-
-    exec_result = None
-    if config.get("enabled"):
-        exec_result = await auto_execute_prediction(result)
-
-    result["auto_exec"] = exec_result
-    return result
 
 # --- Rollout routes ---
 
@@ -1792,6 +1513,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         ws_manager.disconnect(websocket, user_id)
 
 # Include router
+# ============== REGISTER EXTRACTED ROUTERS ==============
+# Imported at the bottom of the module so that all shared helpers/state
+# (db, ws_manager, get_current_user, notify_user, models, etc.) are already
+# defined when the router modules execute `from server import ...`.
+from routes import auth as _auth_routes  # noqa: E402
+from routes import exchange as _exchange_routes  # noqa: E402
+from routes import scheduler as _scheduler_routes  # noqa: E402
+
+api_router.include_router(_auth_routes.router)
+api_router.include_router(_exchange_routes.router)
+api_router.include_router(_scheduler_routes.router)
+
 app.include_router(api_router)
 
 # CORS
