@@ -47,6 +47,16 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
+def ensure_utc(dt):
+    """Make any datetime timezone-aware (UTC). Handles naive datetimes from MongoDB Atlas."""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 # JWT Token management
 def create_access_token(user_id: str, email: str) -> str:
     payload = {
@@ -402,7 +412,8 @@ async def login(data: UserLogin, response: Response, request: Request):
     identifier = f"{request.client.host}:{email}"
     attempt = await db.login_attempts.find_one({"identifier": identifier})
     if attempt and attempt.get("count", 0) >= 5:
-        lockout_until = attempt.get("last_attempt", datetime.min.replace(tzinfo=timezone.utc)) + timedelta(minutes=15)
+        last_attempt = ensure_utc(attempt.get("last_attempt")) or datetime.min.replace(tzinfo=timezone.utc)
+        lockout_until = last_attempt + timedelta(minutes=15)
         if datetime.now(timezone.utc) < lockout_until:
             raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
         else:
@@ -505,7 +516,7 @@ async def reset_password(data: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     if token_doc.get("used"):
         raise HTTPException(status_code=400, detail="Reset token already used")
-    if datetime.now(timezone.utc) > token_doc["expires_at"].replace(tzinfo=timezone.utc) if token_doc["expires_at"].tzinfo is None else token_doc["expires_at"]:
+    if datetime.now(timezone.utc) > ensure_utc(token_doc["expires_at"]):
         raise HTTPException(status_code=400, detail="Reset token has expired")
 
     new_hash = hash_password(data.new_password)
@@ -1317,13 +1328,12 @@ def _check_exec_preconditions(config: dict, prediction: dict) -> str:
     last_ts = config.get("last_trade_ts")
     if last_ts:
         try:
-            last_dt = datetime.fromisoformat(last_ts) if isinstance(last_ts, str) else last_ts
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            cooldown = config.get("cooldown_seconds", 300)
-            if elapsed < cooldown:
-                return f"cooldown_active_{int(cooldown - elapsed)}s_remaining"
+            last_dt = ensure_utc(last_ts)
+            if last_dt:
+                elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                cooldown = config.get("cooldown_seconds", 300)
+                if elapsed < cooldown:
+                    return f"cooldown_active_{int(cooldown - elapsed)}s_remaining"
         except (ValueError, TypeError) as e:
             logger.warning(f"Cooldown parse error: {e}")
 
