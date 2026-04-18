@@ -1,11 +1,20 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-
-
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import {
+  AlertTriangle, ArrowDown, ArrowUp, Layers, RefreshCw, Wallet, X,
+} from "lucide-react";
+import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
-import { formatApiErrorDetail } from "@/lib/utils";
-import { logError } from "@/lib/utils";
+import { formatApiErrorDetail, logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 

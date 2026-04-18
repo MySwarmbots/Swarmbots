@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { Button } from "@/components/ui/button";
 import {
   Activity, Bot, BarChart3, Bell, TrendingUp,
-  Zap, Settings, ArrowUpDown, Layers,
+  Zap, Settings, ArrowUpDown, Layers, Menu, X, LogOut,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWs } from "@/contexts/WsContext";

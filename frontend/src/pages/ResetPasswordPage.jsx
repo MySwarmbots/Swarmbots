@@ -2,6 +2,10 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { CheckCircle } from "lucide-react";
 import { formatApiErrorDetail } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;

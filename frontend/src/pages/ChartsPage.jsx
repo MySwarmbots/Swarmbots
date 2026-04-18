@@ -1,8 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import axios from "axios";
-
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+} from "recharts";
+import { DashboardLayout } from "@/components/DashboardLayout";
 import { CHART_COLORS } from "@/lib/chart";
+import { BarChart3 } from "lucide-react";
 import { logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;

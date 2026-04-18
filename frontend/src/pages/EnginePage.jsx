@@ -1,9 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
+import { RefreshCw, Settings } from "lucide-react";
+import { DashboardLayout } from "@/components/DashboardLayout";
 import { useWs } from "@/contexts/WsContext";
-import { formatCurrency } from "@/lib/utils";
-import { logError } from "@/lib/utils";
+import { formatCurrency, logError } from "@/lib/utils";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
