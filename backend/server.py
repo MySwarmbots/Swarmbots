@@ -1296,6 +1296,11 @@ auto_exec_defaults = {
     "scheduler_enabled": False,
     "scheduler_interval_minutes": 15,
     "scheduler_symbols": ["BTCUSDT", "ETHUSDT"],
+    "symbol_multipliers": {
+        "BTC/USDT": 1.5, "ETH/USDT": 1.5, "XRP/USDT": 1.3, "ADA/USDT": 1.2,
+        "DOGE/USDT": 1.0, "SOL/USDT": 1.0
+    },
+    "quiet_hours_utc": [9],
 }
 
 # Scheduler background task ref
@@ -1324,6 +1329,8 @@ class AutoExecConfigUpdate(BaseModel):
     scheduler_enabled: Optional[bool] = None
     scheduler_interval_minutes: Optional[int] = None
     scheduler_symbols: Optional[List[str]] = None
+    symbol_multipliers: Optional[Dict[str, float]] = None
+    quiet_hours_utc: Optional[List[int]] = None
 
 async def auto_execute_prediction(prediction: dict):
     """Core auto-execution: takes a swarm prediction and places a real Bitget order if conditions are met."""
@@ -1343,8 +1350,11 @@ async def auto_execute_prediction(prediction: dict):
     side = "buy" if direction == "long_bias" else "sell"
     max_usd = config.get("max_trade_usd", 0.50)
 
-    # Scale position size by confidence — higher confidence = larger trade
-    scaled_usd = round(max_usd * min(confidence / 0.60, 1.5), 2)
+    # Scale position size by confidence and symbol multiplier
+    sym_multipliers = config.get("symbol_multipliers", {})
+    sym_mult = sym_multipliers.get(ccxt_symbol, 1.0)
+    conf_mult = min(confidence / 0.60, 1.5)
+    scaled_usd = round(max_usd * conf_mult * sym_mult, 2)
 
     # Fetch price and place order
     return await _place_auto_order(config, ccxt_symbol, side, scaled_usd, confidence, direction)
@@ -1412,6 +1422,13 @@ def _check_exec_preconditions(config: dict, prediction: dict) -> str:
         return "prediction_is_wait"
     if direction not in config.get("allowed_directions", ["long_bias", "short_bias"]):
         return f"direction_{direction}_not_allowed"
+
+    # Quiet hours check (UTC)
+    current_hour_utc = datetime.now(timezone.utc).hour
+    quiet_hours = config.get("quiet_hours_utc", [])
+    if current_hour_utc in quiet_hours:
+        return f"quiet_hour_{current_hour_utc}utc"
+
     if confidence < config.get("min_confidence", 0.60):
         return f"confidence_{confidence}_below_threshold_{config['min_confidence']}"
     if ccxt_symbol not in config.get("allowed_symbols", []):
