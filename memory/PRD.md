@@ -17,6 +17,23 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
   - Telegram alerts include intelligence adjustments
 
 ## CHANGELOG
+### Feb 2026 — P3 Services Layer (iteration_12)
+**Backend: `server.py` 1167 → 767 lines (total -59% from original 1880)**
+
+Scheduler/auto-exec chain extracted into `/backend/services/`:
+- `services/signal_tracker.py` (78 lines) — `_snapshot_price`, `record_prediction_with_price`, `check_pending_signals`
+- `services/auto_exec.py` (241 lines) — `auto_exec_defaults`, `get_auto_exec_config`, `update_auto_exec_config`, `AutoExecConfigUpdate`, `_apply_signal_intelligence`, `_normalize_symbol`, `_check_exec_preconditions`, `_place_auto_order`, `auto_execute_prediction`
+- `services/scheduler.py` (131 lines) — `DIRECTION_EMOJI/TEXT`, `_format_prediction_telegram`, `_get_telegram_users`, `_broadcast_to_telegram`, `_process_scheduled_symbol`, `scheduler_loop`
+
+Router files now depend on `services.*` directly (not `server`), cleaner dep graph:
+- `routes/scheduler.py` → `services.auto_exec` + `services.scheduler`
+- `routes/dungeon.py` → `services.auto_exec`
+- `routes/signals.py` → `services.signal_tracker`
+
+Server startup uses lazy `from services.scheduler import scheduler_loop` to avoid circular imports (services → server → services).
+
+**Testing**: iteration_12 — **59/59 tests passed** (36 from iter_11 parity + 23 new services tests). Scheduler verified running every 5 min on all 6 symbols with correct intelligence adjustments.
+
 ### Feb 2026 — P2 Refactor Wave 2 (iteration_11)
 **Backend: `server.py` 1614 → 1167 lines (total -38% from original 1880)**
 - `/backend/routes/profile.py` (profile GET/PATCH, telegram link/unlink/test)
@@ -63,4 +80,4 @@ React 19 + Tailwind + FastAPI + MongoDB + Bitget (CCXT) + GPT-4o + Stripe + Tele
 
 ## Roadmap (P3)
 - Add public leaderboard / shareable agent card for virality
-- Consider splitting remaining server.py helpers (scheduler_loop + auto-exec chain) into `/backend/services/` if they grow further
+- ~~Split scheduler/auto-exec chain into `/backend/services/`~~ ✅ Done (iter_12)
