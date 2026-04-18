@@ -1045,8 +1045,41 @@ async def get_signal_accuracy(limit: int = 100):
 
 @api_router.get("/signals/pending")
 async def get_pending_signals():
-    pending = await db.signal_accuracy.find({"checked": False}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    pending = await db.signal_accuracy.find({"checked": False}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
     return {"pending": pending}
+
+@api_router.get("/signals/intelligence")
+async def get_signal_intelligence():
+    """Return per-symbol, per-direction intelligence data for the dashboard."""
+    pipeline = [
+        {"$match": {"checked": True}},
+        {"$group": {
+            "_id": {"symbol": "$symbol", "direction": "$direction"},
+            "total": {"$sum": 1},
+            "correct": {"$sum": {"$cond": [{"$eq": ["$correct", True]}, 1, 0]}},
+            "total_pnl": {"$sum": "$pnl_pct"},
+            "avg_pnl": {"$avg": "$pnl_pct"},
+        }},
+        {"$sort": {"_id.symbol": 1}}
+    ]
+    results = await db.signal_accuracy.aggregate(pipeline).to_list(100)
+    intel = []
+    for r in results:
+        wr = round(r["correct"] / r["total"] * 100, 1) if r["total"] > 0 else 0
+        direction = r["_id"]["direction"]
+        boost = "boost" if wr >= 80 else "penalize" if wr <= 30 else "neutral"
+        intel.append({
+            "symbol": r["_id"]["symbol"],
+            "direction": direction,
+            "direction_label": {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}.get(direction, direction),
+            "total": r["total"],
+            "correct": r["correct"],
+            "win_rate": wr,
+            "total_pnl": round(r["total_pnl"], 3),
+            "avg_pnl": round(r["avg_pnl"], 4),
+            "action": boost,
+        })
+    return {"intelligence": intel}
 
 # ============== HEALTH ==============
 
@@ -1296,6 +1329,9 @@ async def auto_execute_prediction(prediction: dict):
     """Core auto-execution: takes a swarm prediction and places a real Bitget order if conditions are met."""
     config = await get_auto_exec_config()
 
+    # Apply signal intelligence adjustments
+    prediction = await _apply_signal_intelligence(prediction)
+
     # Validate preconditions
     block_reason = _check_exec_preconditions(config, prediction)
     if block_reason:
@@ -1307,8 +1343,50 @@ async def auto_execute_prediction(prediction: dict):
     side = "buy" if direction == "long_bias" else "sell"
     max_usd = config.get("max_trade_usd", 0.50)
 
+    # Scale position size by confidence — higher confidence = larger trade
+    scaled_usd = round(max_usd * min(confidence / 0.60, 1.5), 2)
+
     # Fetch price and place order
-    return await _place_auto_order(config, ccxt_symbol, side, max_usd, confidence, direction)
+    return await _place_auto_order(config, ccxt_symbol, side, scaled_usd, confidence, direction)
+
+
+async def _apply_signal_intelligence(prediction: dict) -> dict:
+    """Adjust prediction confidence based on historical signal accuracy data."""
+    direction = prediction.get("direction")
+    symbol = prediction.get("symbol", "")
+    confidence = prediction.get("confidence", 0)
+
+    # Fetch recent accuracy stats for this symbol+direction
+    checked_signals = await db.signal_accuracy.find(
+        {"symbol": symbol, "direction": direction, "checked": True}
+    ).sort("created_at", -1).limit(50).to_list(50)
+
+    if len(checked_signals) < 5:
+        # Not enough data — return unmodified
+        prediction["intelligence_applied"] = False
+        return prediction
+
+    correct = sum(1 for s in checked_signals if s.get("correct"))
+    historical_wr = correct / len(checked_signals)
+
+    # Boost or penalize confidence based on historical win rate
+    # WR > 80% → boost by up to 15%, WR < 30% → penalize by up to 20%
+    if historical_wr >= 0.80:
+        adjustment = min((historical_wr - 0.80) * 0.75, 0.15)
+        new_confidence = min(confidence + adjustment, 0.99)
+    elif historical_wr <= 0.30:
+        adjustment = min((0.30 - historical_wr) * 1.0, 0.20)
+        new_confidence = max(confidence - adjustment, 0.05)
+    else:
+        new_confidence = confidence
+
+    prediction["original_confidence"] = confidence
+    prediction["confidence"] = round(new_confidence, 4)
+    prediction["intelligence_applied"] = True
+    prediction["historical_win_rate"] = round(historical_wr, 3)
+    prediction["confidence_adjustment"] = round(new_confidence - confidence, 4)
+
+    return prediction
 
 
 def _normalize_symbol(symbol_raw: str) -> str:
@@ -1480,6 +1558,15 @@ DIRECTION_TEXT = {"long_bias": "LONG", "short_bias": "SHORT", "wait": "WAIT"}
 def _format_prediction_telegram(sym: str, result: dict) -> str:
     emoji = DIRECTION_EMOJI.get(result["direction"], "\U0001F4CA")
     direction_text = DIRECTION_TEXT.get(result["direction"], "?")
+
+    # Add intelligence info if available
+    intel_line = ""
+    if result.get("intelligence_applied"):
+        adj = result.get("confidence_adjustment", 0)
+        hwr = result.get("historical_win_rate", 0)
+        adj_emoji = "\u2B06\uFE0F" if adj > 0 else "\u2B07\uFE0F" if adj < 0 else "\u27A1\uFE0F"
+        intel_line = f"\n{adj_emoji} Intel: WR {hwr*100:.0f}% | Adj {adj*100:+.1f}%"
+
     return (
         f"{emoji} <b>Swarm Prediction: {sym}</b>\n"
         f"Direction: <b>{direction_text}</b>\n"
@@ -1487,6 +1574,7 @@ def _format_prediction_telegram(sym: str, result: dict) -> str:
         f"Votes: \U0001F7E2{result['votes']['bullish_count']}B "
         f"\U0001F534{result['votes']['bearish_count']}S "
         f"\U0001F7E1{result['votes']['neutral_count']}N"
+        f"{intel_line}"
     )
 
 
@@ -1502,9 +1590,14 @@ async def _broadcast_to_telegram(users: list, message: str):
 
 
 async def _process_scheduled_symbol(sym: str, config: dict):
-    """Process one symbol in the scheduler — predict, log, alert, auto-exec."""
+    """Process one symbol in the scheduler — predict, apply intelligence, log, alert, auto-exec."""
     result = sd.aggregate_prediction(sym)
-    logger.info(f"[SCHEDULER] {sym}: {result['direction']} conf={result['confidence']:.3f}")
+
+    # Apply signal intelligence
+    result = await _apply_signal_intelligence(result)
+
+    logger.info(f"[SCHEDULER] {sym}: {result['direction']} conf={result['confidence']:.3f}" +
+                (f" (intel: WR={result.get('historical_win_rate',0):.1%} adj={result.get('confidence_adjustment',0):+.3f})" if result.get('intelligence_applied') else ""))
 
     await ws_manager.broadcast({"type": "scheduler_prediction", "data": {
         "symbol": sym, "direction": result["direction"],

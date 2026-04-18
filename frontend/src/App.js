@@ -1274,13 +1274,17 @@ function PaymentCancelPage() {
 // ============== SIGNAL STRENGTH PAGE ==============
 function SignalsPage() {
   const [data, setData] = useState(null);
+  const [intel, setIntel] = useState([]);
   const [loading, setLoading] = useState(true);
   const { lastMessage } = useWs();
 
   const fetchData = useCallback(async () => {
     try {
-      const { data: d } = await axios.get(`${API}/api/signals/accuracy?limit=200`, { withCredentials: true });
-      setData(d);
+      const [acc, intl] = await Promise.all([
+        axios.get(`${API}/api/signals/accuracy?limit=200`, { withCredentials: true }),
+        axios.get(`${API}/api/signals/intelligence`, { withCredentials: true }),
+      ]);
+      setData(acc.data); setIntel(intl.data.intelligence || []);
     } catch (e) { console.error('Signals fetch error:', e); }
     finally { setLoading(false); }
   }, []);
@@ -1295,6 +1299,8 @@ function SignalsPage() {
 
   const winRate = data?.win_rate || 0;
   const winRateColor = winRate >= 55 ? "#00FF66" : winRate >= 45 ? "#FFCC00" : "#FF3B30";
+  const longIntel = intel.filter(i => i.direction === "long_bias");
+  const shortIntel = intel.filter(i => i.direction === "short_bias");
 
   return (
     <DashboardLayout>
@@ -1302,10 +1308,52 @@ function SignalsPage() {
         <div className="flex items-center justify-between">
           <h2 className="font-heading text-2xl font-bold tracking-tight text-white">SIGNAL STRENGTH</h2>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-[#555555]">{data?.pending || 0} pending verification</span>
+            <span className="font-mono text-[10px] text-[#555555]">{data?.pending || 0} pending</span>
             <Button variant="ghost" onClick={fetchData} className="text-[#8A8A8A] hover:text-white" data-testid="refresh-signals"><RefreshCw size={16} /></Button>
           </div>
         </div>
+
+        {/* Signal Intelligence Panel */}
+        {intel.length > 0 && (
+          <Card className="bg-[#0A0A0A] border-[#002FA7] p-4 rounded-none" style={{ boxShadow: 'inset 0 0 30px rgba(0,47,167,0.15)' }} data-testid="intelligence-panel">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap size={14} className="text-[#002FA7]" />
+              <h3 className="font-mono text-xs tracking-[0.2em] text-[#002FA7] uppercase">SIGNAL INTELLIGENCE ENGINE</h3>
+              <Badge className="bg-[#002FA7] text-white rounded-none font-mono text-[8px]">ACTIVE</Badge>
+            </div>
+            <p className="font-mono text-[10px] text-[#555555] mb-3">Auto-adjusts confidence based on historical accuracy. LONG signals boosted, SHORT signals penalized.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <p className="font-mono text-[10px] text-[#00FF66] mb-2">LONG SIGNALS (BOOSTED)</p>
+                {longIntel.map((item) => (
+                  <div key={`long-${item.symbol}`} className="flex items-center justify-between py-1 border-b border-[#1A1A1A]">
+                    <span className="font-mono text-xs text-white">{item.symbol}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-[10px] text-[#00FF66] tabular-nums">{item.win_rate}%</span>
+                      <span className="font-mono text-[10px] text-[#8A8A8A]">{item.correct}/{item.total}</span>
+                      <span className={`font-mono text-[10px] tabular-nums ${item.avg_pnl >= 0 ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{item.avg_pnl >= 0 ? '+' : ''}{item.avg_pnl}%</span>
+                      <Badge className={`rounded-none font-mono text-[8px] ${item.action === 'boost' ? 'bg-[#00FF66] text-black' : 'bg-[#222222] text-[#8A8A8A]'}`}>{item.action === 'boost' ? 'BOOST' : 'NEUTRAL'}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <p className="font-mono text-[10px] text-[#FF3B30] mb-2">SHORT SIGNALS (PENALIZED)</p>
+                {shortIntel.map((item) => (
+                  <div key={`short-${item.symbol}`} className="flex items-center justify-between py-1 border-b border-[#1A1A1A]">
+                    <span className="font-mono text-xs text-white">{item.symbol}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-[10px] text-[#FF3B30] tabular-nums">{item.win_rate}%</span>
+                      <span className="font-mono text-[10px] text-[#8A8A8A]">{item.correct}/{item.total}</span>
+                      <span className={`font-mono text-[10px] tabular-nums ${item.avg_pnl >= 0 ? 'text-[#00FF66]' : 'text-[#FF3B30]'}`}>{item.avg_pnl >= 0 ? '+' : ''}{item.avg_pnl}%</span>
+                      <Badge className={`rounded-none font-mono text-[8px] ${item.action === 'penalize' ? 'bg-[#FF3B30] text-white' : 'bg-[#222222] text-[#8A8A8A]'}`}>{item.action === 'penalize' ? 'PENALIZE' : 'NEUTRAL'}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Top Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
