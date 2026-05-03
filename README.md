@@ -1,50 +1,141 @@
-# swarm-policy-governor
+# SWARMBOTS — architecture notes
 
-> Multi-agent vote resolution + veto primitive in pure Python.
-> Zero dependencies. Type-hinted. <300 lines of source.
+> **A 24-agent autonomous trading swarm that gates its own capital scaling.**
+> Live on Bitget · 6 markets · 24/7 · custody stays with the operator.
 
-[![PyPI](https://img.shields.io/pypi/v/swarm-policy-governor)](https://pypi.org/project/swarm-policy-governor/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-
-When you have **N specialist agents** that must reach a **single decision**, you have a coordination problem. This package solves it without you having to invent a voting scheme from scratch.
-
-It's the conflict-resolution primitive extracted from [SWARMBOTS](https://myswarmbots.com) — a 24-agent autonomous trading swarm — generalized for any multi-agent system.
+🌐 **Live system:** [myswarmbots.com](https://myswarmbots.com)
+🐦 **Updates:** [@swarmbots_io](https://twitter.com/swarmbots_io)
 
 ---
 
-## Why this exists
+This repo is the **public architecture log** for SWARMBOTS. The trading code itself isn't open-source — that's how the team eats — but every system-level idea that makes the swarm work is documented here, with diagrams and the rationale behind each design choice.
 
-Most multi-agent codebases reinvent voting/quorum logic from scratch. The result is usually:
-- A `dict.most_common()` call dressed up as "consensus"
-- Confidence scores ignored entirely
-- No way for a single highly-confident agent to veto a low-confidence majority
-- Zero auditability when the system makes a bad call
-
-`swarm-policy-governor` gives you a small, **explicit** API for all of this. You define the actions, the quorum threshold, and the veto threshold. The governor returns a decision plus a full dissent log.
+If you've ever wondered *"how do you actually run a multi-agent trading system without it blowing up the first time the market regime shifts?"* — this is your read.
 
 ---
 
-## Install
+## Table of contents
+
+- [Why a swarm and not a model?](#why-a-swarm-and-not-a-model)
+- [System overview](#system-overview)
+- [The 4 agent roles](#the-4-agent-roles)
+- [Policy governor (open-source primitive →)](#policy-governor)
+- [Risk model — ATR stops, Kelly sizing, kill-switch](./RISK-MODEL.md)
+- [Auto-ramp — the 5-gate capital scaling system](./AUTO-RAMP.md)
+- [Full system diagram](./ARCHITECTURE.md)
+- [Live performance (last 7d)](#live-performance-last-7d)
+- [Open-source primitives we ship](#open-source-primitives-we-ship)
+
+---
+
+## Why a swarm and not a model?
+
+Most retail "trading bots" are a single signal generator wrapped in a Telegram alert: one model, one input view, one decision boundary. They blow up the first time the market regime moves outside the model's training distribution.
+
+SWARMBOTS takes the opposite approach. **Per crypto pair we trade, four specialist agents run in parallel, each with a narrow scope and an explicit confidence score:**
+
+| Agent | What it does | Outputs |
+|---|---|---|
+| **Signal** | Short-window pattern detection (momentum, breakouts, mean-reversion) | `{action, conf, target}` |
+| **Trend** | Macro filter — 1h/4h structure, EMA stack, regime label | `{label, strength}` |
+| **Regime** | Volatility/volume regime detection (calm / trending / choppy) | `{regime, atr_pct}` |
+| **Policy** | Position-sizing + conflict-resolution governor | `{decision, dissent}` |
+
+The output of all 4 agents lands at the **Policy Governor** — the only thing allowed to authorize an order. Any one agent can veto. Conflicts are resolved by a transparent rule set, not majority vote.
+
+This shape gives us three properties that single-model bots can't have:
+
+1. **Localized failure** — when one agent's model decays, the others outvote it. No catastrophic strategy collapse.
+2. **Auditable decisions** — every order ships with the agent debate that produced it. No "the model decided" black box.
+3. **Independent capacity** — adding a new market means deploying 4 fresh agents, not retraining a monolithic model.
+
+---
+
+## System overview
+
+```
+                   ┌──────────────────────────────────────────┐
+                   │         BITGET (live exchange)            │
+                   └──────────────────┬───────────────────────┘
+                                      │ ccxt async (maker-post-only)
+                   ┌──────────────────┴───────────────────────┐
+                   │         EXECUTION LAYER                   │
+                   │   · Kelly position sizer                  │
+                   │   · ATR stop + 2:1 target                 │
+                   │   · Two-stage trailing (1R → 0.5×ATR)     │
+                   │   · Adverse-selection guard               │
+                   └──────────────────┬───────────────────────┘
+                                      │
+                   ┌──────────────────┴───────────────────────┐
+                   │         POLICY GOVERNOR                   │
+                   │  resolves agent conflicts → 1 decision    │
+                   │   ↑                                      │
+                   │   open-sourced as `swarm-policy-governor` │
+                   └─────┬──────────┬──────────┬──────────────┘
+                         │          │          │
+                ┌────────┴───┐ ┌────┴────┐ ┌───┴────────┐
+                │  SIGNAL    │ │  TREND  │ │  REGIME    │
+                │  agent     │ │  agent  │ │  agent     │
+                └────────┬───┘ └────┬────┘ └────┬───────┘
+                         │          │          │
+                ┌────────┴──────────┴──────────┴───────┐
+                │      MARKET FEED (1m → 4h candles)     │
+                │  BTC · ETH · SOL · XRP · DOGE · ADA    │
+                └────────────────────────────────────────┘
+
+           ╔══════════════════ CROSS-CUTTING ══════════════════╗
+           ║  • Auto-ramp (5-gate capital scaler)              ║
+           ║  • Auto-deallow (per-symbol underperformance)     ║
+           ║  • Kill-switch (consecutive-loss + daily PnL)     ║
+           ║  • Per-symbol manual pause + auto-resume          ║
+           ╚════════════════════════════════════════════════════╝
+```
+
+Full ASCII diagram with data-flow timing in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+---
+
+## The 4 agent roles
+
+### Signal agent
+- **Scope:** 5-minute candles + order-book imbalance
+- **Models:** ensemble of momentum, breakout, mean-reversion
+- **Output:** `(action ∈ {LONG, SHORT, WAIT}, confidence ∈ [0, 1], target_price)`
+- **Why this scope?** Short windows miss macro shifts but catch the entry timing. The trend agent provides the macro filter.
+
+### Trend agent
+- **Scope:** 1h + 4h candles
+- **Models:** EMA stack + structure detection (HH/LH for downtrends, etc.)
+- **Output:** `(label ∈ {bull, bear, range}, strength ∈ [0, 1])`
+- **Veto power:** can downgrade a Signal LONG to WAIT if `label == bear AND strength > 0.7`.
+
+### Regime agent
+- **Scope:** rolling 24h volatility + volume
+- **Output:** `(regime ∈ {calm, trending, choppy}, atr_pct)`
+- **Effect:** modulates position size — choppy regime caps Kelly fraction at 0.25, trending allows up to 0.6.
+
+### Policy governor
+- **Scope:** receives all 3 votes + a rule set
+- **Output:** `(decision, confidence, dissent_log)`
+- **Open-source:** the conflict-resolution primitive lives at `github.com/MySwarmbots/swarm-policy-governor` — see below.
+
+---
+
+## Policy governor
+
+This is the one piece of SWARMBOTS infrastructure that's actually **open-source**:
 
 ```bash
 pip install swarm-policy-governor
 ```
-
-Python 3.10+. No runtime dependencies.
-
----
-
-## 60-second quickstart
 
 ```python
 from swarm_policy_governor import PolicyGovernor, AgentVote
 
 gov = PolicyGovernor(
     actions=["LONG", "SHORT", "WAIT"],
-    quorum=0.55,            # 55% confidence-weighted agreement to pass
-    veto_threshold=0.70,    # any single agent above 0.7 can override
-    default_action="WAIT",  # what to return when no quorum is reached
+    quorum=0.55,            # require 55% confidence-weighted agreement
+    veto_threshold=0.70,    # any agent above 0.7 confidence can veto
 )
 
 votes = [
@@ -54,165 +145,68 @@ votes = [
 ]
 
 decision = gov.resolve(votes)
-
-print(decision.action)       # → "LONG"
-print(decision.confidence)   # → 0.768
-print(decision.passed_quorum)  # → True
-print(decision.dissent)
-# → [{'agent': 'trend', 'voted': 'WAIT', 'confidence': 0.55}]
+print(decision.action, decision.confidence, decision.dissent)
+# → LONG  0.768  [{'agent': 'trend', 'voted': 'WAIT', 'confidence': 0.55}]
 ```
 
-That's the whole API. Three lines to get a decision + an audit trail.
+→ Repo: [MySwarmbots/swarm-policy-governor](https://github.com/MySwarmbots/swarm-policy-governor)
+
+Why is this the one thing we open-sourced? Because the *governor* is structural — it doesn't encode our edge. The edge is in the agent models themselves (which stay closed). The conflict-resolution primitive is generic and useful to any team building multi-agent systems.
 
 ---
 
-## Example: a single agent veto
+## Live performance (last 7d)
 
-```python
-votes = [
-    AgentVote(agent="signal", action="LONG", confidence=0.82),
-    AgentVote(agent="trend",  action="LONG", confidence=0.71),
-    AgentVote(agent="risk",   action="WAIT", confidence=0.91),  # high-confidence veto
-]
+> **Phase 1 capital deployment: $30 USDT.** Per-trade size capped at $10. These numbers reflect a deliberately conservative, audit-the-system phase — not "what's possible at scale."
 
-decision = gov.resolve(votes)
-print(decision.action)        # → "WAIT" — risk agent vetoed
-print(decision.veto_applied)  # → True
-print(decision.veto_reason)
-# → {'agent': 'risk', 'voted': 'WAIT', 'confidence': 0.91}
-```
+| Metric | Value |
+|---|---|
+| Closed trades | **17** |
+| Win rate | **64.7%** |
+| BTC win rate | 5/5 = 100% |
+| XRP win rate | 3/4 = 75% |
+| Net realized PnL | ~flat (well within ATR slippage band at this size) |
+| Order type | Maker-post-only (fee minimization) |
+| SOL/DOGE | Auto-paused — 0/3 combined, system flagged its own underperformers |
 
-The risk agent's 0.91 confidence in `WAIT` exceeded `veto_threshold=0.70`, so its vote overrode the otherwise-strong LONG signal. **Veto is a feature, not a bug** — it's how you let domain specialists protect the system from groupthink.
+**The bot is its own auditor.** Capital ramps from $10 → $25 → $50 → $100 only after 5 quantitative gates pass. We don't manually scale.
 
----
-
-## Example: configurable resolution strategy
-
-```python
-from swarm_policy_governor import PolicyGovernor, AgentVote
-from swarm_policy_governor.strategies import ConfidenceWeighted, MajorityVote, Borda
-
-# Confidence-weighted (default) — sum of confidences per action wins
-gov = PolicyGovernor(
-    actions=["LONG", "SHORT", "WAIT"],
-    strategy=ConfidenceWeighted(),
-)
-
-# Pure majority vote — count of votes per action wins, confidence ignored
-gov = PolicyGovernor(
-    actions=["LONG", "SHORT", "WAIT"],
-    strategy=MajorityVote(),
-)
-
-# Borda count — each agent ranks all actions; positions sum across agents
-gov = PolicyGovernor(
-    actions=["LONG", "SHORT", "WAIT"],
-    strategy=Borda(),  # requires ranked votes via AgentVote.ranked
-)
-```
-
-You can write your own by subclassing `ResolutionStrategy`. The default is confidence-weighted because in practice it's what most teams want — agents that are unsure should count less than agents that are sure.
+Full breakdown of the gate logic: [`AUTO-RAMP.md`](./AUTO-RAMP.md).
 
 ---
 
-## API reference
+## Open-source primitives we ship
 
-### `PolicyGovernor`
-
-```python
-PolicyGovernor(
-    actions: list[str],
-    quorum: float = 0.5,
-    veto_threshold: float | None = 0.7,
-    default_action: str | None = None,
-    strategy: ResolutionStrategy | None = None,
-)
-```
-
-| Argument | Default | Description |
+| Repo | What it is | Use case |
 |---|---|---|
-| `actions` | required | The full set of legal actions. Anything else is rejected. |
-| `quorum` | `0.5` | Minimum normalized score required for a decision to pass. Range `[0, 1]`. |
-| `veto_threshold` | `0.7` | Single-agent confidence above which their vote overrides. Set `None` to disable. |
-| `default_action` | `None` | What to return if quorum fails. `None` = first action in `actions`. |
-| `strategy` | `ConfidenceWeighted()` | Resolution algorithm. See `strategies` module. |
+| **[swarm-policy-governor](https://github.com/MySwarmbots/swarm-policy-governor)** | Multi-agent vote-resolution + veto primitive | Any system where multiple specialists must reach a single decision |
 
-### `AgentVote`
-
-```python
-AgentVote(
-    agent: str,
-    action: str,
-    confidence: float,
-    metadata: dict | None = None,
-    ranked: list[str] | None = None,  # for Borda
-)
-```
-
-### `Decision`
-
-```python
-@dataclass
-class Decision:
-    action: str
-    confidence: float           # normalized [0, 1]
-    passed_quorum: bool
-    veto_applied: bool
-    veto_reason: dict | None
-    scores: dict[str, float]    # per-action total weight
-    dissent: list[dict]         # agents who voted differently
-```
-
-The `Decision` object is fully serializable — drop it straight into a database for audit.
+More may follow as we extract reusable, edge-neutral components. Star the org to follow.
 
 ---
 
-## Why we built it this way
+## Try the live system
 
-Three design rules drove every choice:
+If reading the design notes makes you want to actually *use* this — instead of building your own from scratch — the production deployment is at:
 
-1. **No magic.** The governor doesn't try to learn anything. It applies the rules you gave it. Reproducible, testable, debuggable.
-2. **Explicit dissent log.** Every decision ships with the votes that *didn't* win. When the system is wrong, you have the evidence to figure out why.
-3. **Veto is first-class.** The most common multi-agent pathology is groupthink — N agents drawing from correlated data sources all voting the same way and missing the one real risk. Veto gives a specialist the explicit power to say "no, I'm sure, override."
+→ **[myswarmbots.com](https://myswarmbots.com)** — $19/mo Pro · $99/mo Alpha (auto-execution) · $499/mo Enterprise · 7-day refund
 
-These rules came directly from running this exact pattern on real Bitget capital. Without them, the swarm produced too many false-positive entries during regime transitions.
+Custody stays in your own Bitget account. We never hold your funds. Read/trade-only API keys, encrypted at rest, auto-rotated every 30 days.
 
 ---
 
-## Tests
+## Contributing & feedback
 
-```bash
-git clone https://github.com/MySwarmbots/swarm-policy-governor
-cd swarm-policy-governor
-pip install -e .[dev]
-pytest
-```
+This repo is documentation, not a runnable codebase. But:
 
-Coverage: 95%+ on the resolution and veto paths.
-
----
-
-## Used in production by
-
-- [SWARMBOTS](https://myswarmbots.com) — 24-agent autonomous crypto trading swarm
-
-If you're using `swarm-policy-governor` in production, open a PR to add yourself.
-
----
-
-## See also
-
-- [SWARMBOTS architecture notes](https://github.com/MySwarmbots/swarmbots-architecture) — the broader system this package was extracted from
-- [SWARMBOTS live system](https://myswarmbots.com) — $19/mo to use the full multi-agent trading swarm with auto-execution on your own Bitget funds
-
----
+- **Found a flaw in the architecture?** Open an issue. Genuine architectural critique is the most valuable feedback we can get.
+- **Want to discuss multi-agent design?** [@swarmbots_io](https://twitter.com/swarmbots_io) DMs are open.
+- **Building something similar?** The `swarm-policy-governor` package is yours — fork, extend, send PRs.
 
 ## Sponsor
 
-Maintained by [@MySwarmbots](https://github.com/MySwarmbots). If this saved you a week of design debate:
-
-→ **[github.com/sponsors/MySwarmbots](https://github.com/sponsors/MySwarmbots)**
+If these notes saved you a week of design debate, consider [sponsoring](./SPONSORS.md) — it directly funds more public write-ups and additional open-source primitives.
 
 ## License
 
-[MIT](./LICENSE) — use it, fork it, ship it.
+The documentation in this repository is licensed under [MIT](./LICENSE). The trading code referenced in these docs is proprietary and not included.

@@ -1,43 +1,4 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-*.egg
-wheels/
-.eggs/
-
-# Testing
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.hypothesis/
-coverage.xml
-*.cover
-
-# Type checking
-.mypy_cache/
-.ruff_cache/
-.pyre/
-.pytype/
-
-# Virtual envs
-.venv/
-venv/
-env/
-.env
-
-# IDEs
+.DS_Store
+*.swp
 .vscode/
 .idea/
-*.swp
-*.swo
-.DS_Store
