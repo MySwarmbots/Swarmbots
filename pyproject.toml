@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "swarm-policy-governor"
+version = "0.1.0"
+description = "Multi-agent vote resolution + veto primitive. Pure Python, zero dependencies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "MySwarmbots", email = "support@myswarmbots.com"},
+]
+keywords = [
+    "multi-agent",
+    "voting",
+    "consensus",
+    "policy",
+    "governor",
+    "agent-coordination",
+    "trading-systems",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/MySwarmbots/swarm-policy-governor"
+Documentation = "https://github.com/MySwarmbots/swarm-policy-governor#readme"
+Issues = "https://github.com/MySwarmbots/swarm-policy-governor/issues"
+"Production deployment" = "https://myswarmbots.com"
+"Architecture notes" = "https://github.com/MySwarmbots/swarmbots-architecture"
+Sponsor = "https://github.com/sponsors/MySwarmbots"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/swarm_policy_governor"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RET"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "--strict-markers --cov=swarm_policy_governor --cov-report=term-missing"
